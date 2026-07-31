@@ -1,0 +1,14 @@
+# Büyük veri dosyaları ve SQLite veritabanları (GitHub 100 MB sınırını aşan dosyalar)
+*.txt
+*.db
+*.sqlite
+*.sqlite3
+
+# Python önbellek ve sanal ortam dosyaları
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
