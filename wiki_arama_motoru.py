@@ -11,6 +11,7 @@ import os
 import re
 import sqlite3
 import time
+import subprocess
 
 # ==========================================
 # 1. VERİTABANI KURULUMU (BATCH / BELLEK DOSTU)
@@ -196,12 +197,39 @@ def esnek_arama(conn, sorgu_metni, limit=5):
 
 
 # ==========================================
-# 3. İNTERAKTİF KULLANICI ARAMA EKRANI (SON KULLANICI ARAYÜZÜ)
+# 3. OTOMATİK GİTHUB YEDEKLEME (CONTRIBUTIONS / TIMELINE KORUYUCU)
+# ==========================================
+def otomatik_git_yedekle():
+    """Projedeki tüm kod değişikliklerini otomatik olarak GitHub'a gönderir."""
+    try:
+        # Git değişiklik durumunu kontrol et
+        status_check = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+        if not status_check.stdout.strip():
+            return
+        
+        print("\n[GitHub] Kod değişiklikleri algılandı, otomatik yedekleniyor...")
+        # git add .
+        subprocess.run(["git", "add", "."], capture_output=True)
+        # git commit
+        tarih_saat = time.strftime("%Y-%m-%d %H:%M:%S")
+        subprocess.run(["git", "commit", "-m", f"Otomatik guncelleme: {tarih_saat}"], capture_output=True)
+        # git push (arka planda çalışması için popen)
+        subprocess.Popen(["git", "push", "origin", "main"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print("[GitHub] Değişiklikler arka planda GitHub'a gönderildi!\n")
+    except Exception:
+        pass
+
+
+# ==========================================
+# 4. İNTERAKTİF KULLANICI ARAMA EKRANI (SON KULLANICI ARAYÜZÜ)
 # ==========================================
 def interaktif_arama():
     txt_yolu = "wiki_temiz.txt"
     db_yolu = "wiki_fts.db"
     
+    # Başlarken herhangi bir kod değişikliği varsa hemen GitHub'a yedekle
+    otomatik_git_yedekle()
+
     print("Wikipedia Kütüphanesi Yükleniyor... Lütfen Bekleyin...")
     conn = veritabani_kur(txt_dosyasi=txt_yolu, db_dosyasi=db_yolu, max_satir=100000, batch_size=5000)
     if not conn:
@@ -257,6 +285,7 @@ def interaktif_arama():
             elif secim in ['q', 'çıkış', 'exit', 'quit']:
                 print("\nİyi günler dileriz! Çıkış yapılıyor...")
                 conn.close()
+                otomatik_git_yedekle()
                 return
 
             if secim.isdigit():
@@ -279,6 +308,7 @@ def interaktif_arama():
                 print("Lütfen bir numara (örn: 1), yeni arama için 'y' veya çıkış için 'q' yazın.")
 
     conn.close()
+    otomatik_git_yedekle()
 
 
 if __name__ == "__main__":
