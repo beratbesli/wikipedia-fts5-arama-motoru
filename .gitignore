@@ -3,6 +3,9 @@
 *.db
 *.sqlite
 *.sqlite3
+*.gz
+*.zip
+*.7z
 
 # Python önbellek ve sanal ortam dosyaları
 __pycache__/
