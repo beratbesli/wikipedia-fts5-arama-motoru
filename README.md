@@ -86,7 +86,6 @@ python -m unittest test_wiki_arama_motoru.py
 
 - `wiki_arama_motoru.py`: Ana arama motoru, veritabanı kurulumu ve terminal arayüzü
 - `test_wiki_arama_motoru.py`: Birim testleri
-- `otomatik_git_izleyici.py`: Otomatik Git yedekleme izleyicisi
 - `.gitignore`: Büyük veri, veritabanı, arşiv ve önbellek dosyalarını Git dışında tutar
 
 ## Lisans Notu

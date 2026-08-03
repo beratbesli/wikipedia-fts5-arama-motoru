@@ -191,37 +191,6 @@ class IndeksVeArayuzTestleri(unittest.TestCase):
                 if isinstance(conn, sqlite3.Connection):
                     conn.close()
 
-    def test_git_hatasi_kullaniciya_yansimaz(self):
-        with mock.patch.object(wiki.subprocess, "run", side_effect=OSError("git yok")):
-            wiki.otomatik_git_yedekle()
-
-    def test_git_index_kilidi_varken_sessizce_bekler(self):
-        with tempfile.TemporaryDirectory() as gecici:
-            git_dizini = os.path.join(gecici, ".git")
-            os.mkdir(git_dizini)
-            with open(os.path.join(git_dizini, "index.lock"), "w", encoding="utf-8"):
-                pass
-            with (
-                mock.patch.object(wiki, "PROJE_DIZINI", gecici),
-                mock.patch.object(wiki.subprocess, "run") as calistir,
-            ):
-                self.assertFalse(wiki.otomatik_git_yedekle())
-            calistir.assert_not_called()
-
-    def test_git_islem_sirasinda_olusan_kilidi_yoksayar(self):
-        sonuclar = [
-            mock.Mock(returncode=0),
-            mock.Mock(returncode=0, stdout=" wiki_arama_motoru.py\n", stderr=""),
-            mock.Mock(returncode=128, stdout="", stderr="fatal: .git/index.lock already exists"),
-        ]
-        with (
-            mock.patch.object(wiki, "_git_indeks_kilitli_mi", return_value=False),
-            mock.patch.object(wiki.subprocess, "run", side_effect=sonuclar),
-            mock.patch.object(wiki.subprocess, "Popen") as baslat,
-        ):
-            self.assertFalse(wiki.otomatik_git_yedekle())
-        baslat.assert_not_called()
-
     def test_arayuz_girdileri_dostca_dogrular(self):
         conn = sqlite3.connect(":memory:")
         conn.execute(
@@ -241,7 +210,6 @@ class IndeksVeArayuzTestleri(unittest.TestCase):
         girdiler = iter(["!!!", "ve ile bir", "bilgisayar", "abc", "99", "1", "y", "q"])
         cikti = io.StringIO()
         with (
-            mock.patch.object(wiki, "otomatik_git_yedekle"),
             mock.patch.object(wiki, "veritabani_kur", return_value=conn),
             mock.patch("builtins.input", side_effect=lambda _="": next(girdiler)),
             contextlib.redirect_stdout(cikti),
@@ -270,7 +238,6 @@ class IndeksVeArayuzTestleri(unittest.TestCase):
         girdiler = iter(["deneme", "p", "n", "n", "n", "23", "y", "q"])
         cikti = io.StringIO()
         with (
-            mock.patch.object(wiki, "otomatik_git_yedekle"),
             mock.patch.object(wiki, "veritabani_kur", return_value=conn),
             mock.patch.object(wiki, "esnek_arama", return_value=sonuclar),
             mock.patch("builtins.input", side_effect=lambda _="": next(girdiler)),

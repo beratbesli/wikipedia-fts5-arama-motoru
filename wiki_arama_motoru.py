@@ -6,7 +6,6 @@ import html
 import os
 import re
 import sqlite3
-import subprocess
 import time
 
 
@@ -1025,7 +1024,6 @@ def interaktif_arama():
     txt_yolu = os.path.join(PROJE_DIZINI, "wiki_temiz.txt")
     db_yolu = os.path.join(PROJE_DIZINI, "wiki_fts.db")
     conn = None
-    otomatik_git_yedekle()
 
     try:
         print("Wikipedia Kütüphanesi Yükleniyor…")
@@ -1128,106 +1126,6 @@ def interaktif_arama():
                 conn.close()
             except sqlite3.Error:
                 pass
-        otomatik_git_yedekle()
-
-
-def _git_komutunu_bul():
-    """Windows dahil tum ortamlarda git calistirabilir yolunu dondurur."""
-    adaylar = [
-        "git",
-        os.path.join(os.environ.get("ProgramFiles", ""), "Git", "cmd", "git.exe"),
-        os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Git", "cmd", "git.exe"),
-        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Git", "cmd", "git.exe"),
-    ]
-    for aday in adaylar:
-        if aday != "git" and (not aday or not os.path.isfile(aday)):
-            continue
-        try:
-            sonuc = subprocess.run(
-                [aday, "--version"],
-                cwd=PROJE_DIZINI,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=3,
-                check=False,
-            )
-        except (OSError, subprocess.SubprocessError, ValueError):
-            continue
-        if sonuc.returncode == 0:
-            return aday
-    return None
-
-
-def _git_indeks_kilitli_mi():
-    """Başka bir Git işlemi indeksi kullanıyorsa çakışmadan geri çekilir."""
-    return os.path.exists(os.path.join(PROJE_DIZINI, ".git", "index.lock"))
-
-
-def _git_kilit_hatasi_mi(sonuc):
-    mesaj = ((getattr(sonuc, "stderr", "") or "") + " " + (getattr(sonuc, "stdout", "") or "")).lower()
-    return "index.lock" in mesaj or "another git process" in mesaj
-
-
-def otomatik_git_yedekle(arka_planda_yolla=True):
-    """Degisiklikleri commit eder ve gerekirse arka planda origin/main'e yollar."""
-    if _git_indeks_kilitli_mi():
-        return False
-
-    git_komutu = _git_komutunu_bul()
-    if not git_komutu:
-        return False
-
-    ortak = {
-        "cwd": PROJE_DIZINI,
-        "capture_output": True,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
-        "timeout": 8,
-        "check": False,
-    }
-
-    try:
-        durum = subprocess.run([git_komutu, "status", "--porcelain"], **ortak)
-        if durum.returncode != 0 or not durum.stdout.strip():
-            return False
-
-        if _git_indeks_kilitli_mi():
-            return False
-        ekle = subprocess.run([git_komutu, "add", "-A", "."], **ortak)
-        if ekle.returncode != 0 or _git_kilit_hatasi_mi(ekle):
-            return False
-
-        if _git_indeks_kilitli_mi():
-            return False
-        tarih_saat = time.strftime("%Y-%m-%d %H:%M:%S")
-        kaydet = subprocess.run(
-            [git_komutu, "commit", "-m", f"Otomatik guncelleme: {tarih_saat}"],
-            **ortak,
-        )
-        if kaydet.returncode != 0 or _git_kilit_hatasi_mi(kaydet):
-            return False
-
-        if arka_planda_yolla:
-            subprocess.Popen(
-                [git_komutu, "push", "origin", "main"],
-                cwd=PROJE_DIZINI,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            return True
-
-        push_sonuc = subprocess.run(
-            [git_komutu, "push", "origin", "main"],
-            cwd=PROJE_DIZINI,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-            timeout=60,
-        )
-        return push_sonuc.returncode == 0
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return False
 
 
 if __name__ == "__main__":
