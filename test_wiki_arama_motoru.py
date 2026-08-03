@@ -60,6 +60,7 @@ class AramaTestleri(unittest.TestCase):
             """
             CREATE VIRTUAL TABLE makaleler USING fts5(
                 satir_id UNINDEXED,
+                baslik,
                 metin,
                 tokenize='unicode61 remove_diacritics 0'
             )
@@ -68,29 +69,39 @@ class AramaTestleri(unittest.TestCase):
         satirlar = [
             (
                 1,
+                "İstanbul Boğazı",
                 "İstanbul Boğazı ya da tarihî ismiyle Bosporus, Asya ile Avrupa'yı ayıran ve "
                 "Marmara Denizi ile Karadeniz'i bağlayan uluslararası bir su yoludur. "
                 "İstanbul kentinin iki yakası boyunca çok sayıda tarihî yapı bulunur.",
             ),
             (
                 2,
+                "Boğaz",
                 "Boğaz şu anlamlara gelebilir: Boğaz organ, Çanakkale Boğazı, İstanbul Boğazı, "
                 "Bering Boğazı ve başka kısa liste maddeleri burada sıralanır.",
             ),
-            (3, "| inline = 1 | map = rota }} \\utCONTg ~~ İstanbul Boğazı"),
+            (3, "İstanbul Boğazı rota", "| inline = 1 | map = rota }} \\utCONTg ~~ İstanbul Boğazı"),
             (
                 4,
+                "Çığ",
                 "Çığ, eğimli arazideki kar kütlesinin hızla aşağı kayması olayıdır. "
                 "Büyük çığlar can ve mal kaybına yol açabilir ve dağlık bölgelerde görülür.",
             ),
             (
                 5,
+                "Ruhun ölümsüzlüğü",
                 "Ruhun ölümsüzlüğü, pek çok felsefe ve inanç geleneğinde tartışılan bir düşüncedir. "
                 "Konu insan yaşamı, ölüm ve varoluş üzerine farklı görüşler içerir.",
             ),
-            (6, "ölüm ölüm etkin plak ilişkili web önemli"),
+            (6, "Ölüm", "ölüm ölüm etkin plak ilişkili web önemli"),
+            (
+                7,
+                "Kitaplar",
+                "Kitaplar, bilgi ve öyküleri yazılı biçimde okurlara ulaştıran önemli kültür ürünleridir. "
+                "Kütüphanelerde korunan eserler eğitim, araştırma, düşünce ve sanat yaşamına uzun yıllar katkı sağlar.",
+            ),
         ]
-        self.conn.executemany("INSERT INTO makaleler(satir_id, metin) VALUES (?, ?)", satirlar)
+        self.conn.executemany("INSERT INTO makaleler(satir_id, baslik, metin) VALUES (?, ?, ?)", satirlar)
         self.conn.commit()
 
     def tearDown(self):
@@ -117,6 +128,31 @@ class AramaTestleri(unittest.TestCase):
         self.assertEqual(wiki.esnek_arama(self.conn, "İstanbul", 5), [])
         self.conn = sqlite3.connect(":memory:")
 
+    def test_saklanan_baslik_dogrudan_okunur(self):
+        with mock.patch.object(
+            wiki,
+            "_temiz_metinden_baslik",
+            side_effect=AssertionError("Arama sırasında başlık yeniden çıkarılmamalı"),
+        ):
+            sonuclar = wiki.esnek_arama(self.conn, "İstanbul Boğazı", 5)
+        self.assertEqual(sonuclar[0]["baslik"], "İstanbul Boğazı")
+
+    def test_fts5_ozel_isaretleri_guvenle_islenir(self):
+        sonuclar = wiki.esnek_arama(self.conn, '\"İstanbul\" AND OR NOT *', 5)
+        self.assertTrue(sonuclar)
+        self.assertEqual(sonuclar[0]["baslik"], "İstanbul Boğazı")
+        self.assertEqual(wiki.esnek_arama(self.conn, 'AND OR NOT * \"\"', 5), [])
+
+    def test_turkce_on_ek_eslesmesi_cekime_girmis_sozcugu_bulur(self):
+        sonuclar = wiki.esnek_arama(self.conn, "kitap", 5)
+        self.assertTrue(sonuclar)
+        self.assertEqual(sonuclar[0]["baslik"], "Kitaplar")
+        self.assertIn("[Kitaplar]", sonuclar[0]["ozet"])
+
+    def test_turkce_buyuk_kucuk_harf_normalizasyonu(self):
+        self.assertEqual(wiki._arama_norm("IĞDIR"), wiki._arama_norm("ığdır"))
+        self.assertEqual(wiki._arama_norm("İSTANBUL"), wiki._arama_norm("istanbul"))
+
 
 class IndeksVeArayuzTestleri(unittest.TestCase):
     def test_batch_sinirlari_ve_bozuk_utf8(self):
@@ -140,8 +176,17 @@ class IndeksVeArayuzTestleri(unittest.TestCase):
                     [satir[0] for satir in conn.execute("SELECT satir_id FROM makaleler ORDER BY rowid")],
                     [1, 2, 4, 5, 6],
                 )
+                self.assertEqual(
+                    [satir[1] for satir in conn.execute("PRAGMA table_info(makaleler)")],
+                    ["satir_id", "baslik", "metin"],
+                )
+                self.assertEqual(
+                    conn.execute("SELECT baslik FROM makaleler WHERE satir_id = 1").fetchone()[0],
+                    "Birinci geçerli makale",
+                )
                 durum = dict(conn.execute("SELECT anahtar, deger FROM indeks_durumu"))
                 self.assertEqual(durum["tamamlandi"], "1")
+                self.assertEqual(durum["sema_surumu"], wiki.SEMA_SURUMU)
             finally:
                 if isinstance(conn, sqlite3.Connection):
                     conn.close()
@@ -150,15 +195,43 @@ class IndeksVeArayuzTestleri(unittest.TestCase):
         with mock.patch.object(wiki.subprocess, "run", side_effect=OSError("git yok")):
             wiki.otomatik_git_yedekle()
 
+    def test_git_index_kilidi_varken_sessizce_bekler(self):
+        with tempfile.TemporaryDirectory() as gecici:
+            git_dizini = os.path.join(gecici, ".git")
+            os.mkdir(git_dizini)
+            with open(os.path.join(git_dizini, "index.lock"), "w", encoding="utf-8"):
+                pass
+            with (
+                mock.patch.object(wiki, "PROJE_DIZINI", gecici),
+                mock.patch.object(wiki.subprocess, "run") as calistir,
+            ):
+                self.assertFalse(wiki.otomatik_git_yedekle())
+            calistir.assert_not_called()
+
+    def test_git_islem_sirasinda_olusan_kilidi_yoksayar(self):
+        sonuclar = [
+            mock.Mock(returncode=0),
+            mock.Mock(returncode=0, stdout=" wiki_arama_motoru.py\n", stderr=""),
+            mock.Mock(returncode=128, stdout="", stderr="fatal: .git/index.lock already exists"),
+        ]
+        with (
+            mock.patch.object(wiki, "_git_indeks_kilitli_mi", return_value=False),
+            mock.patch.object(wiki.subprocess, "run", side_effect=sonuclar),
+            mock.patch.object(wiki.subprocess, "Popen") as baslat,
+        ):
+            self.assertFalse(wiki.otomatik_git_yedekle())
+        baslat.assert_not_called()
+
     def test_arayuz_girdileri_dostca_dogrular(self):
         conn = sqlite3.connect(":memory:")
         conn.execute(
-            "CREATE VIRTUAL TABLE makaleler USING fts5(satir_id UNINDEXED, metin, tokenize='unicode61 remove_diacritics 0')"
+            "CREATE VIRTUAL TABLE makaleler USING fts5(satir_id UNINDEXED, baslik, metin, tokenize='unicode61 remove_diacritics 0')"
         )
         conn.execute(
-            "INSERT INTO makaleler VALUES (?, ?)",
+            "INSERT INTO makaleler VALUES (?, ?, ?)",
             (
                 1,
+                "Bilgisayar",
                 "Bilgisayar, verileri işleyen programlanabilir elektronik bir aygıttır. "
                 "Modern bilgisayarlar pek çok görevi hızlı ve güvenilir biçimde tamamlar. "
                 "Donanım ve yazılım parçaları birlikte çalışarak bilgiyi saklar, düzenler ve kullanıcıya sunar.",
@@ -182,6 +255,38 @@ class IndeksVeArayuzTestleri(unittest.TestCase):
         self.assertIn("Konu Başlığı", metin)
         self.assertIn("İçerik Özeti", metin)
         self.assertIn("Makaleden Geniş Metin", metin)
+
+    def test_arayuz_sonuclari_onarlik_sayfalarda_gezer(self):
+        conn = sqlite3.connect(":memory:")
+        sonuclar = [
+            {
+                "baslik": f"Başlık {sira}",
+                "eslesme_durumu": "Aradığınız konu bu maddede bulundu.",
+                "ozet": f"Özet {sira}",
+                "detay": f"Ayrıntı {sira}",
+            }
+            for sira in range(1, 24)
+        ]
+        girdiler = iter(["deneme", "p", "n", "n", "n", "23", "y", "q"])
+        cikti = io.StringIO()
+        with (
+            mock.patch.object(wiki, "otomatik_git_yedekle"),
+            mock.patch.object(wiki, "veritabani_kur", return_value=conn),
+            mock.patch.object(wiki, "esnek_arama", return_value=sonuclar),
+            mock.patch("builtins.input", side_effect=lambda _="": next(girdiler)),
+            contextlib.redirect_stdout(cikti),
+        ):
+            wiki.interaktif_arama()
+
+        metin = cikti.getvalue()
+        self.assertIn("Sayfa 1/3", metin)
+        self.assertIn("Sayfa 2/3", metin)
+        self.assertIn("Sayfa 3/3", metin)
+        self.assertIn("Zaten ilk sonuç sayfasındasınız", metin)
+        self.assertIn("Zaten son sonuç sayfasındasınız", metin)
+        self.assertIn("Başlık 11", metin)
+        self.assertIn("Başlık 21", metin)
+        self.assertIn("23. SONUÇ", metin)
 
 
 if __name__ == "__main__":

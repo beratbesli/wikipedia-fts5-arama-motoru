@@ -6,7 +6,6 @@ import html
 import os
 import re
 import sqlite3
-import shutil
 import subprocess
 import time
 
@@ -14,6 +13,128 @@ import time
 PROJE_DIZINI = os.path.dirname(os.path.abspath(__file__))
 VURGU_AC = "\ue000"
 VURGU_KAPAT = "\ue001"
+SEMA_SURUMU = "2"
+TURKCE_HARF_DONUSUMU = str.maketrans({"I": "ı", "İ": "i"})
+
+# Büyük dökümler işlenirken her makale için yeniden derlenmemeleri gereken desenler.
+KELIME_DESENI = re.compile(r"\w+", re.UNICODE)
+OZET_KELIME_DESENI = re.compile(r"\w+(?:['’]\w+)*", re.UNICODE)
+TABLO_ISARETI_DESENI = re.compile(
+    r"(?:\{\||\|\}|\|\s*-|!!|\b(?:rowspan|colspan|width)\s*=)", re.IGNORECASE
+)
+BASLANGIC_ARTIGI_DESENI = re.compile(r"^(?:--\s*>|}})\s*")
+BILGI_KUTUSU_ALANI_DESENI = re.compile(
+    r"(?:^|\|)\s*[\wçğıöşüÇĞİÖŞÜ -]{1,45}\s*=", re.UNICODE
+)
+HTML_YORUM_DESENI = re.compile(r"<!--.*?-->", re.DOTALL)
+YETIM_BILGI_KUTUSU_BASLIGI_DESENI = re.compile(r"^([^,.|{}]{2,100}),{1,2}[^{}]{0,250}}}\s*")
+THUMB_DIV_DESENI = re.compile(
+    r"<div\b[^>]*class=[\"'][^\"']*thumb[^\"']*[\"'][^>]*>.*?"
+    r"</div>\s*</div>\s*</div>",
+    re.IGNORECASE | re.DOTALL,
+)
+REF_BLOK_DESENI = re.compile(r"<ref\b[^>]*>.*?</ref\s*>", re.IGNORECASE | re.DOTALL)
+REF_TEK_DESENI = re.compile(r"<ref\b[^>]*/\s*>", re.IGNORECASE)
+REF_ETIKET_DESENI = re.compile(r"</?ref\b[^>]*>", re.IGNORECASE)
+MEDYA_BLOK_DESENI = re.compile(
+    r"<(?:math|gallery|timeline|imagemap|score)\b[^>]*>.*?"
+    r"</(?:math|gallery|timeline|imagemap|score)\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+SATIR_SONU_DESENI = re.compile(r"<br\s*/?>", re.IGNORECASE)
+HTML_ETIKET_DESENI = re.compile(r"<[^>]+>")
+YARIM_HTML_ETIKET_DESENI = re.compile(r"<[A-Za-z/][^>]*$")
+DOSYA_BAGLANTISI_DESENI = re.compile(
+    r"\[\[(?:Dosya|File|Image):.*?\]\]", re.IGNORECASE | re.DOTALL
+)
+KÜÇÜKRESIM_BAGLANTISI_DESENI = re.compile(
+    r"(?:küçükresim|thumbnail|thumb)(?:\|[^\[\]\n]{0,200})?\[\[[^\[\]]{0,500}\]\]",
+    re.IGNORECASE | re.DOTALL,
+)
+KÜÇÜKRESIM_ARTIGI_DESENI = re.compile(
+    r"(?:küçükresim|thumbnail|thumb)(?:\|[\wçğıöşüÇĞİÖŞÜ .='-]{0,50})*\|?\s*"
+    r"[^.!?]{0,220}?\b(?:görünümü|görüntüsü|fotoğrafı|resmi|portresi|haritası|şeması|logosu|konumu|tablosu)\b\s*",
+    re.IGNORECASE,
+)
+KATEGORI_BAGLANTISI_DESENI = re.compile(
+    r"\[\[(?:Kategori|Category):.*?\]\]", re.IGNORECASE | re.DOTALL
+)
+YETIM_ALAN_DESENI = re.compile(r"\|\s*[\wçğıöşüÇĞİÖŞÜ -]{1,45}\s*=\s*[^|{}]*")
+IC_BAGLANTI_DESENI = re.compile(r"\[\[([^\[\]]+)\]\]")
+DOSYA_VE_KATEGORI_ON_EKI_DESENI = re.compile(
+    r"^(?:Kategori|Category|Dosya|File|Image):", re.IGNORECASE
+)
+ETIKETLI_DIS_BAGLANTI_DESENI = re.compile(
+    r"\[(?:https?|ftp)://[^\s\]]+\s+([^\]]+)\]", re.IGNORECASE
+)
+DIS_BAGLANTI_DESENI = re.compile(r"\[(?:https?|ftp)://[^\]]+\]", re.IGNORECASE)
+URL_DESENI = re.compile(r"\b(?:https?|ftp)://\S+", re.IGNORECASE)
+WWW_DESENI = re.compile(r"\bwww\.\S+", re.IGNORECASE)
+VIKIPEDI_KOPYA_NOTU_DESENI = re.compile(
+    r"Bu sayfa,?\s+Türkçe Vikipedi(?:'den|den) kopyalandığı tarihten sonraki değişimleri göstermez\.?",
+    re.IGNORECASE,
+)
+KATEGORI_KUYRUGU_DESENI = re.compile(r"\b(?:Kategori|Category)\s*:.*$", re.IGNORECASE)
+DOSYA_ARTIGI_DESENI = re.compile(r"\b(?:Dosya|File|Image)\s*:\s*\S+", re.IGNORECASE)
+DAVRANIS_ANAHTARI_DESENI = re.compile(
+    r"__(?:NOTOC|TOC|FORCETOC|NOINDEX|INDEX)__", re.IGNORECASE
+)
+BOLUM_BASLIGI_DESENI = re.compile(r"={2,}\s*([^=]+?)\s*={2,}")
+VIKI_VURGU_DESENI = re.compile(r"'{2,5}")
+KAÇIS_ARTIGI_DESENI = re.compile(r"\\+[A-Za-z][\w-]*")
+ALT_ALANI_DESENI = re.compile(r"(?<!\w)alt\s*=\s*(?=\||\s|$)", re.IGNORECASE)
+RESIM_PARAMETRESI_DESENI = re.compile(
+    r"(?<!\w)(?:küçükresim|thumbnail|thumb|upright(?:\s*=\s*[\d.]+)?|sağ|sol|left|right)(?!\w)\s*\|?",
+    re.IGNORECASE,
+)
+PIKSEL_DESENI = re.compile(r"(?<!\w)\d+\s*px(?!\w)", re.IGNORECASE)
+BOYUT_DESENI = re.compile(r"(?<!\w)\d+\s*x\s*\d+\s*(?:px|pik)(?!\w)", re.IGNORECASE)
+TABLO_NITELIGI_DESENI = re.compile(
+    r"\b(?:width|height|rowspan|colspan|align|class|style)\s*=\s*(?:[\"'][^\"']*[\"']|[^\s|!]+)",
+    re.IGNORECASE,
+)
+LISTE_ISARETI_DESENI = re.compile(r"(?:^|\s)[*#;]+\s*")
+GIRINTI_DESENI = re.compile(r"\s:{1,3}\s")
+VIKI_AYRACI_DESENI = re.compile(r"\{+|}+|\[\[|\]\]|\{\||\|}")
+DIGER_AYRAÇ_DESENI = re.compile(r"\|+|~~+")
+YORUM_KAPANISI_DESENI = re.compile(r"(?:--\s*>|-->)+")
+NOKTALAMA_BOSLUGU_DESENI = re.compile(r"\s+([,.;:!?])")
+YINELENEN_NOKTALAMA_DESENI = re.compile(r"([,;:])(?:\s*\1)+")
+VIRGUL_NOKTA_DESENI = re.compile(r",\s*\.")
+UZUN_NOKTA_DESENI = re.compile(r"\.{3,}")
+BOSLUK_DESENI = re.compile(r"\s+")
+YINELENEN_ILK_KELIME_DESENI = re.compile(r"^(\w{2,})\s+\1\b", re.IGNORECASE | re.UNICODE)
+CUMLE_DESENI = re.compile(r"(?<=[.!?])\s+")
+CUMLE_SONU_DESENI = re.compile(r"[.!?…](?=\s|$)")
+KISALTMA_DESENI = re.compile(r"\b(?:d|ö|bkz|vb|vs|dr|prof|doç|sn)\.$", re.IGNORECASE)
+BASLIK_ISARETI_DESENI = re.compile(r"^[\W_]+", re.UNICODE)
+BASLIK_YILI_DESENI = re.compile(r"^\d{3,4}\s+(?=[A-ZÇĞİÖŞÜ])")
+BASLIK_RESIM_ARTIGI_DESENI = re.compile(
+    r"^(?:harita|resim|şekil)\s*bağı\s*[-–—]?\s*", re.IGNORECASE
+)
+BASLIK_TAKMA_AD_DESENI = re.compile(
+    r"\s+(?:ya da|veya)\s+(?:tarih[iî]\s+)?(?:adı|ismi)(?:yla|yle)?\b", re.IGNORECASE
+)
+BASLIK_VEYA_DESENI = re.compile(r"\s+(?:ya da|veya)\s+", re.IGNORECASE)
+TANIM_BASLANGICI_DESENI = re.compile(
+    r"^(?:bir\b|adıyla\b|adlı\b|olarak\b|türüdür\b|dalıdır\b|kişidir\b)"
+)
+TANIM_SONU_DESENI = re.compile(r"\b\w+(?:dır|dir|dur|dür|tır|tir|tur|tür)\b[^.!?]{0,20}[.!?]?$")
+ZAYIF_BASLIK_DESENI = re.compile(
+    r"^(?:bu|buna|bunun|burada|böylece|ancak|daha sonra|sonrasında|ilki|"
+    r"ilkbahar|yaz|sonbahar|kış|\d{3,4}\s*[-–—])\b"
+)
+VIRGULLU_TANIM_DESENI = re.compile(r"^(.{2,110}?)(?:\s*\([^)]{0,120}\))*\s*,\s+(.+)$")
+PARANTEZLI_BASLIK_DESENI = re.compile(
+    r"^([A-ZÇĞİÖŞÜ0-9][\wçğıöşüÇĞİÖŞÜ .'-]{1,80}?)\s*\("
+)
+KÜÇÜKRESIM_BASLANGICI_DESENI = re.compile(
+    r"^\s*(?:küçükresim|thumbnail|thumb)\b", re.IGNORECASE
+)
+DENGELI_BLOK_DESENLERI = {
+    ("{{", "}}"): re.compile(r"\{\{(?:(?!\{\{|\}\}).)*\}\}", re.DOTALL),
+    ("{|", "|}"): re.compile(r"\{\|(?:(?!\{\||\|}).)*\|}", re.DOTALL),
+}
 
 # Tek başına arandığında anlamlı sonuç üretmeyen yaygın Türkçe görev sözcükleri.
 TURKCE_DURAK_KELIMELERI = {
@@ -31,7 +152,7 @@ TURKCE_DURAK_KELIMELERI = {
 
 def _arama_norm(metin):
     """Karşılaştırma amacıyla Türkçe metni kararlı biçimde normalleştirir."""
-    return (metin or "").casefold().replace("i\u0307", "i")
+    return (metin or "").translate(TURKCE_HARF_DONUSUMU).casefold()
 
 
 def arama_terimlerini_ayikla(sorgu_metni):
@@ -39,7 +160,7 @@ def arama_terimlerini_ayikla(sorgu_metni):
     if not isinstance(sorgu_metni, str):
         return []
 
-    terimler = re.findall(r"\w+", sorgu_metni.strip(), flags=re.UNICODE)
+    terimler = KELIME_DESENI.findall(sorgu_metni.strip())
     sonuc = []
     gorulen = set()
     for terim in terimler:
@@ -55,16 +176,18 @@ def _dengeli_bloklari_sil(metin, acilis, kapanis):
     """İç içe geçmiş şablon benzeri blokları güvenli biçimde kaldırır."""
     # Önce en içteki tam çiftleri sil. Kapanışı kayıp bir şablonda bütün makale
     # kuyruğunu atmak yerine yalnızca kalan ayraçları kaldır.
-    desen = re.compile(
-        re.escape(acilis)
-        + r"(?:(?!"
-        + re.escape(acilis)
-        + "|"
-        + re.escape(kapanis)
-        + r").)*"
-        + re.escape(kapanis),
-        flags=re.DOTALL,
-    )
+    desen = DENGELI_BLOK_DESENLERI.get((acilis, kapanis))
+    if desen is None:
+        desen = re.compile(
+            re.escape(acilis)
+            + r"(?:(?!"
+            + re.escape(acilis)
+            + "|"
+            + re.escape(kapanis)
+            + r").)*"
+            + re.escape(kapanis),
+            flags=re.DOTALL,
+        )
     temiz = metin
     for _ in range(30):
         yeni = desen.sub(" ", temiz)
@@ -77,7 +200,7 @@ def _dengeli_bloklari_sil(metin, acilis, kapanis):
 def _baslangictaki_bilgi_kutusunu_sil(metin):
     """Dökümde açılışı kaybolmuş bilgi kutusu alanlarını makale girişinden ayırır."""
     temiz = metin.lstrip()
-    temiz = re.sub(r"^(?:--\s*>|}})\s*", "", temiz)
+    temiz = BASLANGIC_ARTIGI_DESENI.sub("", temiz)
 
     # Bazı satırlar açılış '{{' olmadan onlarca '| alan = değer' ile başlıyor.
     for _ in range(4):
@@ -85,13 +208,7 @@ def _baslangictaki_bilgi_kutusunu_sil(metin):
         if kapanis < 0 or kapanis > 12000:
             break
         on_ek = temiz[:kapanis]
-        alan_sayisi = len(
-            re.findall(
-                r"(?:^|\|)\s*[\wçğıöşüÇĞİÖŞÜ -]{1,45}\s*=",
-                on_ek,
-                flags=re.UNICODE,
-            )
-        )
+        alan_sayisi = len(BILGI_KUTUSU_ALANI_DESENI.findall(on_ek))
         if alan_sayisi >= 2 or (alan_sayisi >= 1 and on_ek.count("|") >= 3):
             temiz = temiz[kapanis + 2 :].lstrip()
             continue
@@ -129,9 +246,7 @@ def wiki_metni_sadelestir(metin):
     if not isinstance(metin, str):
         metin = str(metin)
 
-    tablo_isaretli = bool(
-        re.search(r"(?:\{\||\|}|\|\s*-|!!|\b(?:rowspan|colspan|width)\s*=)", metin, re.IGNORECASE)
-    )
+    tablo_isaretli = bool(TABLO_ISARETI_DESENI.search(metin))
     temiz = metin.replace("\ufeff", " ")
     for _ in range(3):
         yeni = html.unescape(temiz)
@@ -143,138 +258,82 @@ def wiki_metni_sadelestir(metin):
         karakter if karakter in "\t\n\r" or ord(karakter) >= 32 else " "
         for karakter in temiz
     )
-    temiz = re.sub(r"<!--.*?-->", " ", temiz, flags=re.DOTALL)
+    temiz = HTML_YORUM_DESENI.sub(" ", temiz)
     temiz = _baslangictaki_bilgi_kutusunu_sil(temiz)
-    temiz = re.sub(
-        r"^([^,.|{}]{2,100}),{1,2}[^{}]{0,250}}}\s*",
-        r"\1 ",
-        temiz,
-    )
+    temiz = YETIM_BILGI_KUTUSU_BASLIGI_DESENI.sub(r"\1 ", temiz)
 
-    temiz = re.sub(
-        r"<div\b[^>]*class=[\"'][^\"']*thumb[^\"']*[\"'][^>]*>.*?"
-        r"</div>\s*</div>\s*</div>",
-        " ",
-        temiz,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
+    temiz = THUMB_DIV_DESENI.sub(" ", temiz)
 
     # İçerikleri kullanıcıya değer katmayan bloklar.
-    temiz = re.sub(r"<ref\b[^>]*>.*?</ref\s*>", " ", temiz, flags=re.IGNORECASE | re.DOTALL)
-    temiz = re.sub(r"<ref\b[^>]*/\s*>", " ", temiz, flags=re.IGNORECASE)
-    temiz = re.sub(r"</?ref\b[^>]*>", " ", temiz, flags=re.IGNORECASE)
-    temiz = re.sub(
-        r"<(?:math|gallery|timeline|imagemap|score)\b[^>]*>.*?</(?:math|gallery|timeline|imagemap|score)\s*>",
-        " ",
-        temiz,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    temiz = re.sub(r"<br\s*/?>", ". ", temiz, flags=re.IGNORECASE)
-    temiz = re.sub(r"<[^>]+>", " ", temiz)
-    temiz = re.sub(r"<[A-Za-z/][^>]*$", " ", temiz)
+    temiz = REF_BLOK_DESENI.sub(" ", temiz)
+    temiz = REF_TEK_DESENI.sub(" ", temiz)
+    temiz = REF_ETIKET_DESENI.sub(" ", temiz)
+    temiz = MEDYA_BLOK_DESENI.sub(" ", temiz)
+    temiz = SATIR_SONU_DESENI.sub(". ", temiz)
+    temiz = HTML_ETIKET_DESENI.sub(" ", temiz)
+    temiz = YARIM_HTML_ETIKET_DESENI.sub(" ", temiz)
 
     # Dosya/resim bağlantılarını, bağlantı normalleştirmesinden önce bütünüyle at.
-    temiz = re.sub(
-        r"\[\[(?:Dosya|File|Image):.*?\]\]",
-        " ",
-        temiz,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    temiz = re.sub(
-        r"(?:küçükresim|thumbnail|thumb)(?:\|[^\[\]\n]{0,200})?\[\[[^\[\]]{0,500}\]\]",
-        " ",
-        temiz,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    temiz = re.sub(
-        r"(?:küçükresim|thumbnail|thumb)(?:\|[\wçğıöşüÇĞİÖŞÜ .='-]{0,50})*\|?\s*"
-        r"[^.!?]{0,220}?\b(?:görünümü|görüntüsü|fotoğrafı|resmi|portresi|haritası|şeması|logosu|konumu|tablosu)\b\s*",
-        " ",
-        temiz,
-        flags=re.IGNORECASE,
-    )
-    temiz = re.sub(
-        r"\[\[(?:Kategori|Category):.*?\]\]",
-        " ",
-        temiz,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
+    temiz = DOSYA_BAGLANTISI_DESENI.sub(" ", temiz)
+    temiz = KÜÇÜKRESIM_BAGLANTISI_DESENI.sub(" ", temiz)
+    temiz = KÜÇÜKRESIM_ARTIGI_DESENI.sub(" ", temiz)
+    temiz = KATEGORI_BAGLANTISI_DESENI.sub(" ", temiz)
 
     # Kapanış ayraçları dururken yetim '| alan = değer' parçalarını temizle;
     # aksi halde alan değeri yanlışlıkla makale girişine kadar uzayabilir.
-    temiz = re.sub(
-        r"\|\s*[\wçğıöşüÇĞİÖŞÜ -]{1,45}\s*=\s*[^|{}]*",
-        " ",
-        temiz,
-    )
+    temiz = YETIM_ALAN_DESENI.sub(" ", temiz)
 
     temiz = _dengeli_bloklari_sil(temiz, "{{", "}}")
     temiz = _dengeli_bloklari_sil(temiz, "{|", "|}")
 
     # İç içe bağlantıları içeriden dışarıya doğru düzleştir.
-    baglanti = re.compile(r"\[\[([^\[\]]+)\]\]")
     for _ in range(8):
-        if not baglanti.search(temiz):
+        if not IC_BAGLANTI_DESENI.search(temiz):
             break
 
         def baglanti_metni(eslesme):
             icerik = eslesme.group(1).strip()
-            if re.match(r"^(?:Kategori|Category|Dosya|File|Image):", icerik, re.IGNORECASE):
+            if DOSYA_VE_KATEGORI_ON_EKI_DESENI.match(icerik):
                 return " "
             return icerik.rsplit("|", 1)[-1].strip()
 
-        temiz = baglanti.sub(baglanti_metni, temiz)
+        temiz = IC_BAGLANTI_DESENI.sub(baglanti_metni, temiz)
 
-    temiz = re.sub(r"\[(?:https?|ftp)://[^\s\]]+\s+([^\]]+)\]", r"\1", temiz, flags=re.IGNORECASE)
-    temiz = re.sub(r"\[(?:https?|ftp)://[^\]]+\]", " ", temiz, flags=re.IGNORECASE)
-    temiz = re.sub(r"\b(?:https?|ftp)://\S+", " ", temiz, flags=re.IGNORECASE)
-    temiz = re.sub(r"\bwww\.\S+", " ", temiz, flags=re.IGNORECASE)
-    temiz = re.sub(
-        r"Bu sayfa,?\s+Türkçe Vikipedi(?:'den|den) kopyalandığı tarihten sonraki değişimleri göstermez\.?",
-        " ",
-        temiz,
-        flags=re.IGNORECASE,
-    )
+    temiz = ETIKETLI_DIS_BAGLANTI_DESENI.sub(r"\1", temiz)
+    temiz = DIS_BAGLANTI_DESENI.sub(" ", temiz)
+    temiz = URL_DESENI.sub(" ", temiz)
+    temiz = WWW_DESENI.sub(" ", temiz)
+    temiz = VIKIPEDI_KOPYA_NOTU_DESENI.sub(" ", temiz)
 
     # Dökümün sonundaki kategori dizilerini ve kalan dosya belirteçlerini kaldır.
-    temiz = re.sub(r"\b(?:Kategori|Category)\s*:.*$", " ", temiz, flags=re.IGNORECASE)
-    temiz = re.sub(r"\b(?:Dosya|File|Image)\s*:\s*\S+", " ", temiz, flags=re.IGNORECASE)
-    temiz = re.sub(r"__(?:NOTOC|TOC|FORCETOC|NOINDEX|INDEX)__", " ", temiz, flags=re.IGNORECASE)
+    temiz = KATEGORI_KUYRUGU_DESENI.sub(" ", temiz)
+    temiz = DOSYA_ARTIGI_DESENI.sub(" ", temiz)
+    temiz = DAVRANIS_ANAHTARI_DESENI.sub(" ", temiz)
 
     # Başlık, tablo, liste, resim ve güzergâh şablonlarından kalan işaretler.
-    temiz = re.sub(r"={2,}\s*([^=]+?)\s*={2,}", r". \1. ", temiz)
-    temiz = re.sub(r"'{2,5}", "", temiz)
-    temiz = re.sub(r"\\+[A-Za-z][\w-]*", " ", temiz)
-    temiz = re.sub(r"(?<!\w)alt\s*=\s*(?=\||\s|$)", " ", temiz, flags=re.IGNORECASE)
-    temiz = re.sub(
-        r"(?<!\w)(?:küçükresim|thumbnail|thumb|upright(?:\s*=\s*[\d.]+)?|sağ|sol|left|right)(?!\w)\s*\|?",
-        " ",
-        temiz,
-        flags=re.IGNORECASE,
-    )
-    temiz = re.sub(r"(?<!\w)\d+\s*px(?!\w)", " ", temiz, flags=re.IGNORECASE)
-    temiz = re.sub(r"(?<!\w)\d+\s*x\s*\d+\s*(?:px|pik)(?!\w)", " ", temiz, flags=re.IGNORECASE)
-    temiz = re.sub(
-        r"\b(?:width|height|rowspan|colspan|align|class|style)\s*=\s*(?:[\"'][^\"']*[\"']|[^\s|!]+)",
-        " ",
-        temiz,
-        flags=re.IGNORECASE,
-    )
-    temiz = re.sub(r"(?:^|\s)[*#;]+\s*", " ", temiz)
-    temiz = re.sub(r"\s:{1,3}\s", ". ", temiz)
-    temiz = re.sub(r"\{+|}+|\[\[|\]\]|\{\||\|}", " ", temiz)
+    temiz = BOLUM_BASLIGI_DESENI.sub(r". \1. ", temiz)
+    temiz = VIKI_VURGU_DESENI.sub("", temiz)
+    temiz = KAÇIS_ARTIGI_DESENI.sub(" ", temiz)
+    temiz = ALT_ALANI_DESENI.sub(" ", temiz)
+    temiz = RESIM_PARAMETRESI_DESENI.sub(" ", temiz)
+    temiz = PIKSEL_DESENI.sub(" ", temiz)
+    temiz = BOYUT_DESENI.sub(" ", temiz)
+    temiz = TABLO_NITELIGI_DESENI.sub(" ", temiz)
+    temiz = LISTE_ISARETI_DESENI.sub(" ", temiz)
+    temiz = GIRINTI_DESENI.sub(". ", temiz)
+    temiz = VIKI_AYRACI_DESENI.sub(" ", temiz)
     temiz = temiz.replace("[", " ").replace("]", " ")
-    temiz = re.sub(r"\|+|~~+", " ", temiz)
+    temiz = DIGER_AYRAÇ_DESENI.sub(" ", temiz)
     if tablo_isaretli:
         temiz = temiz.replace("!", " ")
     temiz = temiz.replace("↑", " ")
-    temiz = re.sub(r"(?:--\s*>|-->)+", " ", temiz)
-    temiz = re.sub(r"\s+([,.;:!?])", r"\1", temiz)
-    temiz = re.sub(r"([,;:])(?:\s*\1)+", r"\1", temiz)
-    temiz = re.sub(r",\s*\.", ",", temiz)
-    temiz = re.sub(r"\.{3,}", "…", temiz)
-    temiz = re.sub(r"\s+", " ", temiz).strip(" \t\r\n|,;:-")
-    temiz = re.sub(r"^(\w{2,})\s+\1\b", r"\1", temiz, flags=re.IGNORECASE | re.UNICODE)
+    temiz = YORUM_KAPANISI_DESENI.sub(" ", temiz)
+    temiz = NOKTALAMA_BOSLUGU_DESENI.sub(r"\1", temiz)
+    temiz = YINELENEN_NOKTALAMA_DESENI.sub(r"\1", temiz)
+    temiz = VIRGUL_NOKTA_DESENI.sub(",", temiz)
+    temiz = UZUN_NOKTA_DESENI.sub("…", temiz)
+    temiz = BOSLUK_DESENI.sub(" ", temiz).strip(" \t\r\n|,;:-")
+    temiz = YINELENEN_ILK_KELIME_DESENI.sub(r"\1", temiz)
     return _vurgulari_dengele(temiz)
 
 
@@ -289,17 +348,12 @@ def _altyazi_veya_junk_cumle(cumle):
 
 
 def _baslik_adayi_temizle(aday):
-    aday = re.sub(r"^[\W_]+", "", aday, flags=re.UNICODE).strip()
-    aday = re.sub(r"^\d{3,4}\s+(?=[A-ZÇĞİÖŞÜ])", "", aday)
-    aday = re.sub(r"^(?:harita|resim|şekil)\s*bağı\s*[-–—]?\s*", "", aday, flags=re.IGNORECASE)
-    aday = re.split(
-        r"\s+(?:ya da|veya)\s+(?:tarih[iî]\s+)?(?:adı|ismi)(?:yla|yle)?\b",
-        aday,
-        maxsplit=1,
-        flags=re.IGNORECASE,
-    )[0]
-    aday = re.split(r"\s+(?:ya da|veya)\s+", aday, maxsplit=1, flags=re.IGNORECASE)[0]
-    aday = re.sub(r"\s+", " ", aday).strip(" ,;:-–—()[]")
+    aday = BASLIK_ISARETI_DESENI.sub("", aday).strip()
+    aday = BASLIK_YILI_DESENI.sub("", aday)
+    aday = BASLIK_RESIM_ARTIGI_DESENI.sub("", aday)
+    aday = BASLIK_TAKMA_AD_DESENI.split(aday, maxsplit=1)[0]
+    aday = BASLIK_VEYA_DESENI.split(aday, maxsplit=1)[0]
+    aday = BOSLUK_DESENI.sub(" ", aday).strip(" ,;:-–—()[]")
     kelimeler = aday.split()
     if len(kelimeler) >= 2:
         for uzunluk in range(1, (len(kelimeler) // 2) + 1):
@@ -313,19 +367,15 @@ def _baslik_adayi_temizle(aday):
 
 def _tanim_devami_mi(devam):
     normal = _arama_norm(devam).strip()
-    if re.match(r"^(?:bir\b|adıyla\b|adlı\b|olarak\b|türüdür\b|dalıdır\b|kişidir\b)", normal):
+    if TANIM_BASLANGICI_DESENI.match(normal):
         return True
-    return bool(re.search(r"\b\w+(?:dır|dir|dur|dür|tır|tir|tur|tür)\b[^.!?]{0,20}[.!?]?$", normal))
+    return bool(TANIM_SONU_DESENI.search(normal))
 
 
 def _zayif_baslik_baslangici(cumle):
     normal = _arama_norm(cumle).lstrip()
     return bool(
-        re.match(
-            r"^(?:bu|buna|bunun|burada|böylece|ancak|daha sonra|sonrasında|ilki|"
-            r"ilkbahar|yaz|sonbahar|kış|\d{3,4}\s*[-–—])\b",
-            normal,
-        )
+        ZAYIF_BASLIK_DESENI.match(normal)
     )
 
 
@@ -334,13 +384,13 @@ def _temiz_metinden_baslik(temiz):
     if not temiz:
         return "Başlıksız ansiklopedi maddesi"
 
-    cumleler = [c.strip() for c in re.split(r"(?<=[.!?])\s+", temiz) if c.strip()]
+    cumleler = [c.strip() for c in CUMLE_DESENI.split(temiz) if c.strip()]
     adaylar = []
     for sira, cumle in enumerate(cumleler[:8]):
         if len(cumle) < 3 or _altyazi_veya_junk_cumle(cumle):
             continue
 
-        eslesme = re.match(r"^(.{2,110}?)(?:\s*\([^)]{0,120}\))*\s*,\s+(.+)$", cumle)
+        eslesme = VIRGULLU_TANIM_DESENI.match(cumle)
         if eslesme:
             aday = _baslik_adayi_temizle(eslesme.group(1))
             if _zayif_baslik_baslangici(aday):
@@ -353,7 +403,7 @@ def _temiz_metinden_baslik(temiz):
                 puan += min(_arama_norm(temiz[:1200]).count(_arama_norm(aday)), 3)
                 adaylar.append((puan, aday))
 
-        parantez = re.match(r"^([A-ZÇĞİÖŞÜ0-9][\wçğıöşüÇĞİÖŞÜ .'-]{1,80}?)\s*\(", cumle)
+        parantez = PARANTEZLI_BASLIK_DESENI.match(cumle)
         if parantez:
             aday = _baslik_adayi_temizle(parantez.group(1))
             if _zayif_baslik_baslangici(aday):
@@ -398,17 +448,13 @@ def metni_guvenli_kisalt(metin, en_fazla_karakter=1500):
 
     parca = temiz[: en_fazla_karakter + 1]
     cumle_sonlari = []
-    for eslesme in re.finditer(r"[.!?…](?=\s|$)", parca):
+    for eslesme in CUMLE_SONU_DESENI.finditer(parca):
         if eslesme.end() > en_fazla_karakter:
             continue
         if eslesme.end() < int(en_fazla_karakter * 0.55):
             continue
         oncesi = parca[max(0, eslesme.start() - 12) : eslesme.end()]
-        if eslesme.group(0) == "." and re.search(
-            r"\b(?:d|ö|bkz|vb|vs|dr|prof|doç|sn)\.$",
-            oncesi,
-            flags=re.IGNORECASE,
-        ):
+        if eslesme.group(0) == "." and KISALTMA_DESENI.search(oncesi):
             continue
         cumle_sonlari.append(eslesme.end())
     if cumle_sonlari:
@@ -427,11 +473,16 @@ def metni_guvenli_kisalt(metin, en_fazla_karakter=1500):
     return temiz
 
 
-def icerik_ozeti_olustur(temiz_metin, terimler, en_fazla_kelime=50):
+def icerik_ozeti_olustur(
+    temiz_metin,
+    terimler,
+    en_fazla_kelime=50,
+    on_ek_eslesmesi=False,
+):
     """İlk ilgili bölgeden, dengeli vurgular içeren yaklaşık 50 kelimelik özet üretir."""
     if not temiz_metin:
         return ""
-    kelime_eslesmeleri = list(re.finditer(r"\w+(?:['’]\w+)*", temiz_metin, flags=re.UNICODE))
+    kelime_eslesmeleri = list(OZET_KELIME_DESENI.finditer(temiz_metin))
     if not kelime_eslesmeleri:
         return metni_guvenli_kisalt(temiz_metin, 250)
 
@@ -441,6 +492,10 @@ def icerik_ozeti_olustur(temiz_metin, terimler, en_fazla_kelime=50):
             sira
             for sira, eslesme in enumerate(kelime_eslesmeleri)
             if _arama_norm(eslesme.group(0)) in arananlar
+            or (
+                on_ek_eslesmesi
+                and any(_arama_norm(eslesme.group(0)).startswith(aranan) for aranan in arananlar)
+            )
         ),
         0,
     )
@@ -454,8 +509,13 @@ def icerik_ozeti_olustur(temiz_metin, terimler, en_fazla_kelime=50):
     ozet = temiz_metin[baslangic:bitis].strip(" ,;:-")
 
     if terimler:
+        bitis_deseni = r"\w*" if on_ek_eslesmesi else ""
         desen = re.compile(
-            r"(?<!\w)(" + "|".join(sorted((re.escape(t) for t in terimler), key=len, reverse=True)) + r")(?!\w)",
+            r"(?<!\w)((?:"
+            + "|".join(sorted((re.escape(t) for t in terimler), key=len, reverse=True))
+            + r")"
+            + bitis_deseni
+            + r")(?!\w)",
             flags=re.IGNORECASE | re.UNICODE,
         )
         ozet = desen.sub(lambda e: "[" + e.group(0) + "]", ozet)
@@ -467,9 +527,32 @@ def icerik_ozeti_olustur(temiz_metin, terimler, en_fazla_kelime=50):
     return ozet
 
 
-def _fts_ifadesi(terimler, operator):
-    guvenli = ['"' + terim.replace('"', '""') + '"' for terim in terimler]
-    return (" " + operator + " ").join(guvenli)
+def _fts_terim_varyantlari(terim):
+    """Türkçe i/ı yazım farkları için güvenli FTS terim seçenekleri üretir."""
+    normal = _arama_norm(terim)
+    varyantlar = [terim, normal]
+    if "ı" in normal:
+        varyantlar.append(normal.replace("ı", "i"))
+        varyantlar.append(normal.replace("ı", "I"))
+    if "i" in normal:
+        varyantlar.append(normal.replace("i", "ı"))
+        varyantlar.append(normal.replace("i", "İ"))
+    return list(dict.fromkeys(varyantlar))
+
+
+def _fts_ifadesi(terimler, operator, on_ek_eslesmesi=False):
+    """Kullanıcı metnini FTS5 işleçlerinden yalıtılmış bir sorguya dönüştürür."""
+    gruplar = []
+    for terim in terimler:
+        guvenli_varyantlar = []
+        for varyant in _fts_terim_varyantlari(terim):
+            guvenli = '"' + varyant.replace('"', '""') + '"'
+            if on_ek_eslesmesi and len(varyant) >= 3:
+                guvenli += "*"
+            guvenli_varyantlar.append(guvenli)
+        grup = " OR ".join(guvenli_varyantlar)
+        gruplar.append("(" + grup + ")" if len(guvenli_varyantlar) > 1 else grup)
+    return (" " + operator + " ").join(gruplar)
 
 
 def _aday_puani(
@@ -480,11 +563,12 @@ def _aday_puani(
     fts_puani,
     sira,
     tum_terimler_eslesiyor=False,
+    on_ek_eslesmesi=False,
 ):
-    kelimeler = re.findall(r"\w+", temiz_metin, flags=re.UNICODE)
+    kelimeler = KELIME_DESENI.findall(temiz_metin)
     if len(temiz_metin) < 120 or len(kelimeler) < 20:
         return None
-    if re.match(r"^\s*(?:küçükresim|thumbnail|thumb)\b", ham_metin, re.IGNORECASE) and len(kelimeler) < 45:
+    if KÜÇÜKRESIM_BASLANGICI_DESENI.match(ham_metin) and len(kelimeler) < 45:
         return None
 
     ham_ornek = ham_metin[:32000]
@@ -506,6 +590,8 @@ def _aday_puani(
         return None
     normal_baslik = _arama_norm(baslik)
     normal_terimler = [_arama_norm(terim) for terim in terimler]
+    normal_metin_kelimeleri = set(KELIME_DESENI.findall(normal_metin))
+    normal_baslik_kelimeleri = set(KELIME_DESENI.findall(normal_baslik))
     ifade = " ".join(normal_terimler)
     tablo_isareti_sayisi = sum(
         ham_metin[:6000].count(isaret)
@@ -516,15 +602,30 @@ def _aday_puani(
     if tum_terimler_eslesiyor:
         eslesen = len(normal_terimler)
     else:
-        normal_ham = _arama_norm(ham_metin)
         eslesen = sum(
             1
             for terim in normal_terimler
-            if re.search(r"(?<!\w)" + re.escape(terim) + r"(?!\w)", normal_ham)
+            if terim in normal_metin_kelimeleri
+            or (
+                on_ek_eslesmesi
+                and any(kelime.startswith(terim) for kelime in normal_metin_kelimeleri)
+            )
         )
-    baslikta = sum(1 for terim in normal_terimler if re.search(r"(?<!\w)" + re.escape(terim) + r"(?!\w)", normal_baslik))
+    baslikta_tam = sum(1 for terim in normal_terimler if terim in normal_baslik_kelimeleri)
+    baslikta_on_ek = sum(
+        1
+        for terim in normal_terimler
+        if terim not in normal_baslik_kelimeleri
+        and on_ek_eslesmesi
+        and any(kelime.startswith(terim) for kelime in normal_baslik_kelimeleri)
+    )
 
-    puan = (eslesen * 5.0) + (baslikta * 7.0) + min(len(kelimeler) / 120.0, 3.0)
+    puan = (
+        (eslesen * 5.0)
+        + (baslikta_tam * 7.0)
+        + (baslikta_on_ek * 3.0)
+        + min(len(kelimeler) / 120.0, 3.0)
+    )
     if ifade and ifade == normal_baslik:
         puan += 22.0
     elif ifade and ifade in normal_baslik:
@@ -552,9 +653,9 @@ def _aday_puani(
 
 
 def _ayni_veya_yakin_sonuc(baslik, detay, gorulen_basliklar, gorulen_icerikler):
-    baslik_kelimeleri = tuple(re.findall(r"\w+", _arama_norm(baslik), flags=re.UNICODE))
+    baslik_kelimeleri = tuple(KELIME_DESENI.findall(_arama_norm(baslik)))
     baslik_anahtari = " ".join(baslik_kelimeleri)
-    icerik_anahtari = " ".join(re.findall(r"\w+", _arama_norm(detay[:350]), flags=re.UNICODE))
+    icerik_anahtari = " ".join(KELIME_DESENI.findall(_arama_norm(detay[:350])))
     if baslik_anahtari in gorulen_basliklar or (icerik_anahtari and icerik_anahtari in gorulen_icerikler):
         return True
 
@@ -568,7 +669,7 @@ def _ayni_veya_yakin_sonuc(baslik, detay, gorulen_basliklar, gorulen_icerikler):
     return False
 
 
-def esnek_arama(conn, sorgu_metni, limit=5):
+def esnek_arama(conn, sorgu_metni, limit=5, on_ek_eslesmesi=True):
     """Önce AND, sonuç yoksa OR sorgusu çalıştırıp temiz ve kaliteli sonuçlar döndürür."""
     terimler = arama_terimlerini_ayikla(sorgu_metni)
     if not terimler or conn is None:
@@ -581,9 +682,10 @@ def esnek_arama(conn, sorgu_metni, limit=5):
     aday_limiti = min(max(limit * 5, 80), 240)
     sql = """
         SELECT
+            baslik,
             metin,
-            bm25(makaleler, 0.0, 1.0) AS fts_puani,
-            snippet(makaleler, 1, '', '', ' … ', 64) AS ozet_ham
+            bm25(makaleler, 0.0, 5.0, 1.0) AS fts_puani,
+            snippet(makaleler, 2, '', '', ' … ', 64) AS ozet_ham
         FROM makaleler
         WHERE makaleler MATCH ?
         ORDER BY fts_puani
@@ -593,7 +695,10 @@ def esnek_arama(conn, sorgu_metni, limit=5):
     for asama, operator in (("tam", "AND"), ("esnek", "OR")):
         try:
             cursor = conn.cursor()
-            cursor.execute(sql, (_fts_ifadesi(terimler, operator), aday_limiti))
+            cursor.execute(
+                sql,
+                (_fts_ifadesi(terimler, operator, on_ek_eslesmesi), aday_limiti),
+            )
             satirlar = cursor.fetchall()
         except (sqlite3.Error, TypeError, ValueError):
             return []
@@ -602,10 +707,10 @@ def esnek_arama(conn, sorgu_metni, limit=5):
             continue
 
         adaylar = []
-        for sira, (ham_metin, fts_puani, ozet_ham) in enumerate(satirlar):
+        for sira, (baslik, ham_metin, fts_puani, ozet_ham) in enumerate(satirlar):
             try:
                 temiz_on_metin = wiki_metni_sadelestir(ham_metin[:32000])
-                baslik = _temiz_metinden_baslik(temiz_on_metin)
+                baslik = baslik or "Başlıksız ansiklopedi maddesi"
                 kalite = _aday_puani(
                     ham_metin,
                     temiz_on_metin,
@@ -614,6 +719,7 @@ def esnek_arama(conn, sorgu_metni, limit=5):
                     fts_puani,
                     sira,
                     tum_terimler_eslesiyor=(asama == "tam"),
+                    on_ek_eslesmesi=on_ek_eslesmesi,
                 )
                 if kalite is None:
                     continue
@@ -633,13 +739,13 @@ def esnek_arama(conn, sorgu_metni, limit=5):
                 ozet_kaynagi = wiki_metni_sadelestir(ozet_ham)
             except (TypeError, ValueError, re.error):
                 continue
-            if len(re.findall(r"\w+", ozet_kaynagi, flags=re.UNICODE)) < 12:
+            if len(KELIME_DESENI.findall(ozet_kaynagi)) < 12:
                 ozet_kaynagi = temiz_metin
             detay = metni_guvenli_kisalt(temiz_metin, 1500)
             if _ayni_veya_yakin_sonuc(baslik, detay, gorulen_basliklar, gorulen_icerikler):
                 continue
-            baslik_anahtari = " ".join(re.findall(r"\w+", _arama_norm(baslik), flags=re.UNICODE))
-            icerik_anahtari = " ".join(re.findall(r"\w+", _arama_norm(detay[:350]), flags=re.UNICODE))
+            baslik_anahtari = " ".join(KELIME_DESENI.findall(_arama_norm(baslik)))
+            icerik_anahtari = " ".join(KELIME_DESENI.findall(_arama_norm(detay[:350])))
             gorulen_basliklar.add(baslik_anahtari)
             if icerik_anahtari:
                 gorulen_icerikler.add(icerik_anahtari)
@@ -647,7 +753,12 @@ def esnek_arama(conn, sorgu_metni, limit=5):
             sonuclar.append(
                 {
                     "baslik": baslik,
-                    "ozet": icerik_ozeti_olustur(ozet_kaynagi, terimler, 50),
+                    "ozet": icerik_ozeti_olustur(
+                        ozet_kaynagi,
+                        terimler,
+                        50,
+                        on_ek_eslesmesi=on_ek_eslesmesi,
+                    ),
                     "detay": detay,
                     "eslesme_durumu": (
                         "Aradığınız anlamlı kelimelerin tamamı bu maddede bulundu."
@@ -667,24 +778,67 @@ def _batch_ekle(conn, batch):
     """Bir partiyi ekler; tek bozuk kayıt varsa sağlam kayıtları yine de korur."""
     if not batch:
         return 0, 0
+    hazir_batch = []
+    atlanan = 0
+    for kayit in batch:
+        try:
+            if len(kayit) == 2:
+                satir_id, metin = kayit
+                baslik = baslik_uydur(metin)
+            elif len(kayit) == 3:
+                satir_id, baslik, metin = kayit
+            else:
+                raise ValueError
+            hazir_batch.append((satir_id, baslik, metin))
+        except (TypeError, ValueError, re.error):
+            atlanan += 1
+
+    if not hazir_batch:
+        return 0, atlanan
+
     try:
-        conn.executemany("INSERT INTO makaleler(satir_id, metin) VALUES (?, ?)", batch)
+        conn.executemany(
+            "INSERT INTO makaleler(satir_id, baslik, metin) VALUES (?, ?, ?)",
+            hazir_batch,
+        )
         conn.commit()
-        return len(batch), 0
+        return len(hazir_batch), atlanan
     except sqlite3.Error:
         conn.rollback()
 
     eklenen = 0
-    atlanan = 0
-    for kayit in batch:
+    for kayit in hazir_batch:
         try:
-            conn.execute("INSERT INTO makaleler(satir_id, metin) VALUES (?, ?)", kayit)
+            conn.execute(
+                "INSERT INTO makaleler(satir_id, baslik, metin) VALUES (?, ?, ?)",
+                kayit,
+            )
             conn.commit()
             eklenen += 1
         except sqlite3.Error:
             conn.rollback()
             atlanan += 1
     return eklenen, atlanan
+
+
+def _makaleler_tablosunu_hazirla(conn):
+    """FTS5 tablosunu güncel başlık sütunuyla hazırlar; eski şemayı bildirir."""
+    olustur = """
+        CREATE VIRTUAL TABLE IF NOT EXISTS makaleler USING fts5(
+            satir_id UNINDEXED,
+            baslik,
+            metin,
+            tokenize='unicode61 remove_diacritics 0'
+        )
+    """
+    conn.execute(olustur)
+    sutunlar = [satir[1] for satir in conn.execute("PRAGMA table_info(makaleler)")]
+    if sutunlar == ["satir_id", "baslik", "metin"]:
+        return False
+
+    conn.execute("DROP TABLE makaleler")
+    conn.execute(olustur)
+    return True
 
 
 def veritabani_kur(
@@ -714,15 +868,7 @@ def veritabani_kur(
         if yeniden_olustur and os.path.exists(db_dosyasi):
             os.remove(db_dosyasi)
         conn = sqlite3.connect(db_dosyasi)
-        conn.execute(
-            """
-            CREATE VIRTUAL TABLE IF NOT EXISTS makaleler USING fts5(
-                satir_id UNINDEXED,
-                metin,
-                tokenize='unicode61 remove_diacritics 0'
-            )
-            """
-        )
+        sema_yenilendi = _makaleler_tablosunu_hazirla(conn)
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS indeks_durumu(
@@ -740,6 +886,7 @@ def veritabani_kur(
         tamamlandi = durum.get("tamamlandi") == "1"
         kaynak_ayni = durum.get("kaynak_boyutu") == kaynak_boyutu
         onceki_limit = durum.get("limit")
+        sema_guncel = durum.get("sema_surumu") == SEMA_SURUMU
 
         yeterli_legacy_indeks = (
             mevcut_kayit > 0
@@ -751,6 +898,8 @@ def veritabani_kur(
             mevcut_kayit > 0
             and tamamlandi
             and kaynak_ayni
+            and sema_guncel
+            and not sema_yenilendi
             and (
                 onceki_limit == "TUMU"
                 or (max_satir is not None and mevcut_kayit >= max_satir)
@@ -761,7 +910,12 @@ def veritabani_kur(
             if yeterli_legacy_indeks:
                 conn.executemany(
                     "INSERT OR REPLACE INTO indeks_durumu(anahtar, deger) VALUES (?, ?)",
-                    (("tamamlandi", "1"), ("kaynak_boyutu", kaynak_boyutu), ("limit", str(mevcut_kayit))),
+                    (
+                        ("tamamlandi", "1"),
+                        ("kaynak_boyutu", kaynak_boyutu),
+                        ("limit", str(mevcut_kayit)),
+                        ("sema_surumu", SEMA_SURUMU),
+                    ),
                 )
                 conn.commit()
             print(f"Kütüphane hazır! ({mevcut_kayit:,} makale arama için hazır)")
@@ -771,7 +925,12 @@ def veritabani_kur(
             conn.execute("DELETE FROM makaleler")
         conn.executemany(
             "INSERT OR REPLACE INTO indeks_durumu(anahtar, deger) VALUES (?, ?)",
-            (("tamamlandi", "0"), ("kaynak_boyutu", kaynak_boyutu), ("limit", istenen_limit)),
+            (
+                ("tamamlandi", "0"),
+                ("kaynak_boyutu", kaynak_boyutu),
+                ("limit", istenen_limit),
+                ("sema_surumu", SEMA_SURUMU),
+            ),
         )
         conn.commit()
     except (OSError, sqlite3.Error):
@@ -819,9 +978,15 @@ def veritabani_kur(
             toplam_satir += eklenen
             atlanan_satir += atlanan
 
+        conn.execute("INSERT INTO makaleler(makaleler) VALUES('optimize')")
         conn.executemany(
             "INSERT OR REPLACE INTO indeks_durumu(anahtar, deger) VALUES (?, ?)",
-            (("tamamlandi", "1"), ("kaynak_boyutu", str(os.path.getsize(txt_dosyasi))), ("limit", istenen_limit)),
+            (
+                ("tamamlandi", "1"),
+                ("kaynak_boyutu", str(os.path.getsize(txt_dosyasi))),
+                ("limit", istenen_limit),
+                ("sema_surumu", SEMA_SURUMU),
+            ),
         )
         conn.commit()
     except (OSError, sqlite3.Error):
@@ -838,39 +1003,21 @@ def veritabani_kur(
     return conn
 
 
-def otomatik_git_yedekle():
-    """Kod değişikliklerini sessizce commit eder ve origin/main'e arka planda gönderir."""
-    ortak = {
-        "cwd": PROJE_DIZINI,
-        "capture_output": True,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
-        "timeout": 8,
-        "check": False,
-    }
-    try:
-        durum = subprocess.run(["git", "status", "--porcelain"], **ortak)
-        if durum.returncode != 0 or not durum.stdout.strip():
-            return
-        ekle = subprocess.run(["git", "add", "."], **ortak)
-        if ekle.returncode != 0:
-            return
-        tarih_saat = time.strftime("%Y-%m-%d %H:%M:%S")
-        kaydet = subprocess.run(
-            ["git", "commit", "-m", f"Otomatik guncelleme: {tarih_saat}"],
-            **ortak,
-        )
-        if kaydet.returncode != 0:
-            return
-        subprocess.Popen(
-            ["git", "push", "origin", "main"],
-            cwd=PROJE_DIZINI,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return
+def _sonuc_sayfasini_goster(sorgu_metni, sonuclar, sayfa, sayfa_boyutu=10):
+    """Sonuçların yalnızca istenen sayfasını gösterir ve geçerli sayfayı döndürür."""
+    toplam_sayfa = max(1, (len(sonuclar) + sayfa_boyutu - 1) // sayfa_boyutu)
+    sayfa = max(0, min(sayfa, toplam_sayfa - 1))
+    baslangic = sayfa * sayfa_boyutu
+    bitis = min(baslangic + sayfa_boyutu, len(sonuclar))
+
+    print("\n" + "=" * 70)
+    print(f"“{sorgu_metni}” İÇİN EN ALAKALI {len(sonuclar)} SONUÇ")
+    print(f"Sayfa {sayfa + 1}/{toplam_sayfa}")
+    print("=" * 70)
+    for idx in range(baslangic, bitis):
+        print(f" {idx + 1:2d}. {sonuclar[idx]['baslik']}")
+    print("-" * 70)
+    return sayfa
 
 
 def interaktif_arama():
@@ -903,7 +1050,7 @@ def interaktif_arama():
                 print("İyi günler dileriz!")
                 return
 
-            tum_kelimeler = re.findall(r"\w+", kullanici_girisi, flags=re.UNICODE)
+            tum_kelimeler = KELIME_DESENI.findall(kullanici_girisi)
             if not tum_kelimeler:
                 print("Lütfen harf veya rakam içeren bir arama yazın.")
                 continue
@@ -917,17 +1064,14 @@ def interaktif_arama():
                 print("Yazımı kontrol edip farklı kelimelerle yeniden deneyebilirsiniz.")
                 continue
 
-            print("\n" + "=" * 70)
-            print(f"“{kullanici_girisi}” İÇİN EN ALAKALI {len(sonuclar)} SONUÇ")
-            print("=" * 70)
-            for idx, sonuc in enumerate(sonuclar, start=1):
-                print(f" {idx:2d}. {sonuc['baslik']}")
-            print("-" * 70)
+            sayfa = _sonuc_sayfasini_goster(kullanici_girisi, sonuclar, 0)
+            toplam_sayfa = (len(sonuclar) + 9) // 10
 
             while True:
                 try:
                     secim = input(
-                        "\nAyrıntı için sonuç numarası, yeni arama için 'y', çıkış için 'q': "
+                        "\nSonuç numarası; sonraki sayfa için 'n', önceki sayfa için 'p', "
+                        "yeni arama için 'y', çıkış için 'q': "
                     ).strip().lower()
                 except (KeyboardInterrupt, EOFError):
                     print("\nİyi günler dileriz!")
@@ -938,8 +1082,28 @@ def interaktif_arama():
                 if secim in {"q", "çıkış", "exit", "quit"}:
                     print("İyi günler dileriz!")
                     return
+                if secim in {"n", "sonraki"}:
+                    if sayfa + 1 >= toplam_sayfa:
+                        print("Zaten son sonuç sayfasındasınız.")
+                    else:
+                        sayfa = _sonuc_sayfasini_goster(
+                            kullanici_girisi,
+                            sonuclar,
+                            sayfa + 1,
+                        )
+                    continue
+                if secim in {"p", "önceki"}:
+                    if sayfa == 0:
+                        print("Zaten ilk sonuç sayfasındasınız.")
+                    else:
+                        sayfa = _sonuc_sayfasini_goster(
+                            kullanici_girisi,
+                            sonuclar,
+                            sayfa - 1,
+                        )
+                    continue
                 if not secim.isdigit():
-                    print("Lütfen bir sonuç numarası, 'y' veya 'q' yazın.")
+                    print("Lütfen bir sonuç numarası ya da 'n', 'p', 'y', 'q' seçeneklerinden birini yazın.")
                     continue
 
                 numara = int(secim)
@@ -969,23 +1133,46 @@ def interaktif_arama():
 
 def _git_komutunu_bul():
     """Windows dahil tum ortamlarda git calistirabilir yolunu dondurur."""
-    git_komutu = shutil.which("git")
-    if git_komutu:
-        return git_komutu
-
     adaylar = [
+        "git",
         os.path.join(os.environ.get("ProgramFiles", ""), "Git", "cmd", "git.exe"),
         os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Git", "cmd", "git.exe"),
         os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Git", "cmd", "git.exe"),
     ]
     for aday in adaylar:
-        if aday and os.path.isfile(aday):
+        if aday != "git" and (not aday or not os.path.isfile(aday)):
+            continue
+        try:
+            sonuc = subprocess.run(
+                [aday, "--version"],
+                cwd=PROJE_DIZINI,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=3,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError, ValueError):
+            continue
+        if sonuc.returncode == 0:
             return aday
     return None
 
 
+def _git_indeks_kilitli_mi():
+    """Başka bir Git işlemi indeksi kullanıyorsa çakışmadan geri çekilir."""
+    return os.path.exists(os.path.join(PROJE_DIZINI, ".git", "index.lock"))
+
+
+def _git_kilit_hatasi_mi(sonuc):
+    mesaj = ((getattr(sonuc, "stderr", "") or "") + " " + (getattr(sonuc, "stdout", "") or "")).lower()
+    return "index.lock" in mesaj or "another git process" in mesaj
+
+
 def otomatik_git_yedekle(arka_planda_yolla=True):
     """Degisiklikleri commit eder ve gerekirse arka planda origin/main'e yollar."""
+    if _git_indeks_kilitli_mi():
+        return False
+
     git_komutu = _git_komutunu_bul()
     if not git_komutu:
         return False
@@ -1005,16 +1192,20 @@ def otomatik_git_yedekle(arka_planda_yolla=True):
         if durum.returncode != 0 or not durum.stdout.strip():
             return False
 
+        if _git_indeks_kilitli_mi():
+            return False
         ekle = subprocess.run([git_komutu, "add", "-A", "."], **ortak)
-        if ekle.returncode != 0:
+        if ekle.returncode != 0 or _git_kilit_hatasi_mi(ekle):
             return False
 
+        if _git_indeks_kilitli_mi():
+            return False
         tarih_saat = time.strftime("%Y-%m-%d %H:%M:%S")
         kaydet = subprocess.run(
             [git_komutu, "commit", "-m", f"Otomatik guncelleme: {tarih_saat}"],
             **ortak,
         )
-        if kaydet.returncode != 0:
+        if kaydet.returncode != 0 or _git_kilit_hatasi_mi(kaydet):
             return False
 
         if arka_planda_yolla:
