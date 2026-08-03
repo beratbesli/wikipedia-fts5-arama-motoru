@@ -1,63 +1,94 @@
-# 🔍 Wikipedia FTS5 Yerel Esnek Arama Motoru
+# Wikipedia FTS5 Yerel Arama Motoru
 
-Bu proje, büyük ölçekli metin veri setleri (örneğin 2.2 GB'lık Türkçe Wikipedia dökümü `wiki_temiz.txt`) üzerinde **milisaniyeler içinde** arama yapmayı sağlayan, **SQLite FTS5 (Full Text Search)** ve **BM25 Alaka Sıralaması** tabanlı yerel bir arama motorudur.
+Bu proje, Türkçe Wikipedia metinleri üzerinde yerel ve hızlı arama yapmak için geliştirilmiş bir Python uygulamasıdır. Arama altyapısı SQLite FTS5 kullanır ve sonuçları BM25 alaka sıralamasıyla listeler.
 
----
+Proje dış bağımlılık kullanmaz. Python 3 standart kütüphanesi yeterlidir.
 
-## ✨ Öne Çıkan Özellikler
+## Özellikler
 
-- 🚀 **Bellek Dostu (Batch) İndeksleme:** 2+ GB boyutundaki büyük veri setlerini RAM'i şişirmeden partiler halinde (`5.000` satırlık batch'ler) SQLite veritabanına aktarır.
-- 🎯 **BM25 Alaka Düzeyi Sıralaması:** Google ve Elasticsearch'ün temelini oluşturan BM25 algoritması ile aranan kelimelerle en çok eşleşen makaleleri otomatik olarak en üste sıralar.
-- 🔄 **Konumdan Bağımsız Esnek Arama (`AND` / `OR` Kombinasyonu):**
-  - Kelimelerin yan yana olma zorunluluğunu kaldırır.
-  - Önce kelimelerin tümünün geçtiği (`AND`) sonuçları getirir, bulunamazsa en iyi eşleşen alternatifleri (`OR`) sıralar.
-- 🧹 **MediaWiki ve Wikitext Temizleyici:** Wikipedia'nın ham biçimlendirme kodlarını (`küçükresim|...`, `<ref>`, bilgi kutusu parametreleri, HTML sembolleri) ekranda göstermeyerek son kullanıcıya doğal bir Türkçe okuma metni sunar.
-- 🖥️ **İnteraktif Son Kullanıcı Arayüzü:**
-  - Arama yapıldığında en alakalı **30 başlığı** liste halinde sunar.
-  - Seçilen başlığın **Konu Başlığını**, **Eşleşme Durumunu**, **Vurgulu İçerik Özetini (`[Kelime]`)** ve **Makaleden Geniş Metnini** detay panelinde açar.
+- SQLite FTS5 ile hızlı tam metin arama
+- BM25 ile alaka sırasına göre sonuç listeleme
+- Türkçe karakterlere duyarlı arama normalizasyonu
+- Türkçe ekli kelimeler için ön ek eşleşmesi desteği
+- Wikipedia wikitext temizleme ve sade metin gösterimi
+- Terminalde sayfalı sonuç gezme
+- Hazır SQLite veritabanı ile ilk kurulum süresini atlama
 
----
+## Veri Seti
 
-## 🛠️ Kurulum ve Kullanım
+Büyük veri dosyaları GitHub deposuna eklenmez. Hazır veritabanı Hugging Face üzerinde tutulur:
 
-### 1. Gereksinimler
-Proje sadece Python 3 standart kütüphanesini (`sqlite3`, `re`, `time`, `html`) kullanmaktadır. Ek bir paket yüklemenize gerek yoktur.
+https://huggingface.co/datasets/beert00/wikipedia-fts5-turkish-dataset
 
-### 2. Veri Setinin Eklenmesi
-Arama yapmak istediğiniz metin dosyasını proje dizinine **`wiki_temiz.txt`** adıyla yerleştirin.
-*(Not: Büyük veri dosyaları `.gitignore` ile hariç tutulduğundan GitHub deposuna yüklenmez).*
+Kullanıma hazır dosya:
 
-### 3. Çalıştırma
-Terminalinizde proje dizinine gelip aşağıdaki komutu çalıştırın:
+```text
+wiki_fts.db
+```
+
+Bu dosyayı indirip proje klasörüne koyarsanız program doğrudan arama ekranını açar. Veritabanı yoksa program `wiki_temiz.txt` dosyasından veritabanını yeniden oluşturabilir, fakat bu işlem ilk çalıştırmada uzun sürebilir.
+
+## Kurulum
+
+1. Repoyu indirin:
+
+```bash
+git clone https://github.com/beratbesli/wikipedia-fts5-arama-motoru.git
+cd wikipedia-fts5-arama-motoru
+```
+
+2. Hugging Face sayfasından `wiki_fts.db` dosyasını indirin.
+
+3. `wiki_fts.db` dosyasını proje klasörüne koyun.
+
+Klasör yapısı şöyle olmalıdır:
+
+```text
+wikipedia-fts5-arama-motoru/
+  wiki_arama_motoru.py
+  wiki_fts.db
+  README.md
+```
+
+## Çalıştırma
+
+Windows:
+
+```powershell
+python wiki_arama_motoru.py
+```
+
+Linux veya macOS:
 
 ```bash
 python3 wiki_arama_motoru.py
 ```
 
-İlk çalıştırmada veritabanı (`wiki_fts.db`) otomatik olarak oluşturulur ve indekslenir. Sonraki çalıştırmalarda doğrudan arama ekranı açılır.
+## Kaynaktan Veritabanı Oluşturma
 
----
-
-## 📋 Kullanım Örneği
+Hazır `wiki_fts.db` dosyasını kullanmak istemiyorsanız temizlenmiş Wikipedia metnini proje klasörüne şu adla koyabilirsiniz:
 
 ```text
-Arama Kutusu > mustafa kemal
-
-======================================================================
-"mustafa kemal" İÇİN EN ALAKALI 30 SONUÇ BULUNDU (0.009 saniyede arandı)
-======================================================================
-  1. 1908 Abdurrahim Tuncak ve Mustafa Kemal Paşa, Halep, 1917 ...
-  2. Davetli gözlemci subayları (Kolağası Mustafa Kemal, Fransız Albay ...
-  3. 1857
-  ...
-----------------------------------------------------------------------
-Detayını görmek istediğiniz sonucun numarasını yazın (Yeni arama için 'y', çıkış için 'q'): 1
+wiki_temiz.txt
 ```
 
----
+Program ilk çalıştırmada bu dosyadan `wiki_fts.db` veritabanını üretir. Büyük dosyalarda bu işlem birkaç dakika sürebilir.
 
-## 🏗️ Proje Yapısı
+## Testler
 
-- `wiki_arama_motoru.py`: Veritabanı kurulumunu, FTS5 sorgulama mantığını ve interaktif terminal arayüzünü içeren ana kod dosyası.
-- `README.md`: Proje dokümantasyonu.
-- `.gitignore`: Büyük veri setlerini ve önbellek dosyalarını depodan hariç tutan yapılandırma dosyası.
+Testleri çalıştırmak için:
+
+```bash
+python -m unittest test_wiki_arama_motoru.py
+```
+
+## Proje Dosyaları
+
+- `wiki_arama_motoru.py`: Ana arama motoru, veritabanı kurulumu ve terminal arayüzü
+- `test_wiki_arama_motoru.py`: Birim testleri
+- `otomatik_git_izleyici.py`: Otomatik Git yedekleme izleyicisi
+- `.gitignore`: Büyük veri, veritabanı, arşiv ve önbellek dosyalarını Git dışında tutar
+
+## Lisans Notu
+
+Bu proje kodu GitHub üzerinde paylaşılır. Wikipedia kaynaklı içerikler kendi lisans koşullarına tabidir. Veri setini kullanırken Hugging Face dataset sayfasındaki lisans ve açıklama bilgilerini dikkate alın.
