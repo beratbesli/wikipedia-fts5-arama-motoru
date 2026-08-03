@@ -64,6 +64,36 @@ Linux veya macOS:
 python3 wiki_arama_motoru.py
 ```
 
+## Kullanım Örneği
+
+```text
+======================================================================
+                  WİKİPEDİA AKILLI ARAMA ASİSTANI
+======================================================================
+Aramak istediğiniz konuyu yazın. Çıkış için 'q' kullanabilirsiniz.
+======================================================================
+
+Arama Kutusu > Atatürk
+
+======================================================================
+“Atatürk” İÇİN EN ALAKALI 30 SONUÇ
+Sayfa 1/3
+======================================================================
+  1. Atatürk'ü Anma
+  2. Atatürk'e göre millet; geçmişte bir arada yaşamış
+  3. Atatürk İlkeleri
+  4. Samsun Atatürk Anadolu Lisesi
+  5. Atatürk Orman Çiftliği
+  6. İzmir Atatürk Stadyumu
+  7. Atatürk Kültür Merkezi
+  8. Bursa Atatürk Stadyumu
+  9. Atatürk Devrimleri
+ 10. Atatürk Barajı ve Hidroelektrik Santrali
+----------------------------------------------------------------------
+
+Sonuç numarası; sonraki sayfa için 'n', önceki sayfa için 'p', yeni arama için 'y', çıkış için 'q':
+```
+
 ## Kaynaktan Veritabanı Oluşturma
 
 Hazır `wiki_fts.db` dosyasını kullanmak istemiyorsanız temizlenmiş Wikipedia metnini proje klasörüne şu adla koyabilirsiniz:
@@ -74,18 +104,9 @@ wiki_temiz.txt
 
 Program ilk çalıştırmada bu dosyadan `wiki_fts.db` veritabanını üretir. Büyük dosyalarda bu işlem birkaç dakika sürebilir.
 
-## Testler
-
-Testleri çalıştırmak için:
-
-```bash
-python -m unittest test_wiki_arama_motoru.py
-```
-
 ## Proje Dosyaları
 
 - `wiki_arama_motoru.py`: Ana arama motoru, veritabanı kurulumu ve terminal arayüzü
-- `test_wiki_arama_motoru.py`: Birim testleri
 - `.gitignore`: Büyük veri, veritabanı, arşiv ve önbellek dosyalarını Git dışında tutar
 
 ## Lisans Notu
