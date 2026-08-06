@@ -111,4 +111,4 @@ Program ilk çalıştırmada bu dosyadan `wiki_fts.db` veritabanını üretir. B
 
 ## Lisans Notu
 
-Bu proje kodu GitHub üzerinde paylaşılır. Wikipedia kaynaklı içerikler kendi lisans koşullarına tabidir. Veri setini kullanırken Hugging Face dataset sayfasındaki lisans ve açıklama bilgilerini dikkate alın.
+Kod [MIT Lisansı](LICENSE) ile sunulur. Depoda Wikipedia verisi veya hazır veritabanı bulunmaz. Wikipedia kaynaklı içerikler kendi lisans koşullarına tabidir; özellikle atıf ve paylaşım koşulları için veri setinin Hugging Face sayfasını ve ilgili Wikipedia lisansını inceleyin. İndirilen veri setinin sürümünü ve checksum değerini kullanmadan önce doğrulayın.
