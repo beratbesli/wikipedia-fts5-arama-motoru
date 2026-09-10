@@ -1,6 +1,6 @@
 import sqlite3
 
-from wikipedia_fts5 import arama_terimlerini_ayikla, esnek_arama
+from wikipedia_fts5 import arama_terimlerini_ayikla, esnek_arama, wiki_metni_sadelestir
 
 
 def database() -> sqlite3.Connection:
@@ -45,3 +45,8 @@ def test_prefix_search_and_invalid_database() -> None:
         assert esnek_arama(invalid, "İstanbul") == []
     finally:
         invalid.close()
+
+
+def test_html_comments_with_bang_end_tag_are_removed() -> None:
+    cleaned = wiki_metni_sadelestir("Önce <!-- gizli --!> sonra")
+    assert cleaned == "Önce sonra"

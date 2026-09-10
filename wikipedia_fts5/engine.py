@@ -25,7 +25,9 @@ BASLANGIC_ARTIGI_DESENI = re.compile(r"^(?:--\s*>|}})\s*")
 BILGI_KUTUSU_ALANI_DESENI = re.compile(
     r"(?:^|\|)\s*[\wçğıöşüÇĞİÖŞÜ -]{1,45}\s*=", re.UNICODE
 )
-HTML_YORUM_DESENI = re.compile(r"<!--.*?-->", re.DOTALL)
+# Browsers also accept the malformed-but-parseable `--!>` comment terminator.
+# Recognize it so comment contents cannot leak into the searchable text.
+HTML_YORUM_DESENI = re.compile(r"<!--.*?--!?>", re.DOTALL)
 YETIM_BILGI_KUTUSU_BASLIGI_DESENI = re.compile(r"^([^,.|{}]{2,100}),{1,2}[^{}]{0,250}}}\s*")
 THUMB_DIV_DESENI = re.compile(
     r"<div\b[^>]*class=[\"'][^\"']*thumb[^\"']*[\"'][^>]*>.*?"
@@ -96,7 +98,10 @@ LISTE_ISARETI_DESENI = re.compile(r"(?:^|\s)[*#;]+\s*")
 GIRINTI_DESENI = re.compile(r"\s:{1,3}\s")
 VIKI_AYRACI_DESENI = re.compile(r"\{+|}+|\[\[|\]\]|\{\||\|}")
 DIGER_AYRAÇ_DESENI = re.compile(r"\|+|~~+")
-YORUM_KAPANISI_DESENI = re.compile(r"(?:--\s*>|-->)+")
+# HTML comment end tags may use either the normal form (`-->`) or the
+# parser-tolerated bang form (`--!>`).  Keep the optional whitespace support
+# for malformed dumps while covering both forms accepted by browsers.
+YORUM_KAPANISI_DESENI = re.compile(r"(?:--!?>|--\s*>)+")
 NOKTALAMA_BOSLUGU_DESENI = re.compile(r"\s+([,.;:!?])")
 YINELENEN_NOKTALAMA_DESENI = re.compile(r"([,;:])(?:\s*\1)+")
 VIRGUL_NOKTA_DESENI = re.compile(r",\s*\.")
@@ -1126,4 +1131,3 @@ def interaktif_arama():
                 conn.close()
             except sqlite3.Error:
                 pass
-
