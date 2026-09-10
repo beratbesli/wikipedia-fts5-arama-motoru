@@ -23,7 +23,7 @@ jobs:
       - name: Verify and build distributions
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip build
+          python -m pip install --upgrade pip build pytest
           python -m pytest -q
           python -m build --wheel --sdist
           sha256sum dist/* > dist/SHA256SUMS
