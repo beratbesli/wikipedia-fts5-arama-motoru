@@ -2,7 +2,7 @@
 
 Bu proje, Türkçe Wikipedia metinleri üzerinde yerel ve hızlı arama yapmak için geliştirilmiş bir Python uygulamasıdır. Arama altyapısı SQLite FTS5 kullanır ve sonuçları BM25 alaka sıralamasıyla listeler.
 
-Proje dış bağımlılık kullanmaz. Python 3 standart kütüphanesi yeterlidir.
+Çalışma zamanı için dış bağımlılık yoktur; Python 3 standart kütüphanesi yeterlidir.
 
 ## Özellikler
 
@@ -28,6 +28,11 @@ wiki_fts.db
 
 Bu dosyayı indirip proje klasörüne koyarsanız program doğrudan arama ekranını açar. Veritabanı yoksa program `wiki_temiz.txt` dosyasından veritabanını yeniden oluşturabilir, fakat bu işlem ilk çalıştırmada uzun sürebilir.
 
+> **Doğrulama durumu:** Hugging Face üzerindeki etiket tek başına kaynak ve lisans
+> zincirini kanıtlamaz. Kesin döküm URL'si, tarih, dönüşüm komutu ve SHA-256 değerleri
+> henüz doldurulmamıştır. Bu alanlar tamamlanana kadar veri setini kaynağı doğrulanmış
+> bir sürüm olarak kabul etmeyin. Kontrol listesi: [`docs/DATA_PROVENANCE.md`](docs/DATA_PROVENANCE.md).
+
 ## Kurulum
 
 1. Repoyu indirin:
@@ -37,9 +42,18 @@ git clone https://github.com/beratbesli/wikipedia-fts5-arama-motoru.git
 cd wikipedia-fts5-arama-motoru
 ```
 
-2. Hugging Face sayfasından `wiki_fts.db` dosyasını indirin.
+2. Projeyi yalıtılmış bir ortama kurun:
 
-3. `wiki_fts.db` dosyasını proje klasörüne koyun.
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+python -m pip install .
+```
+
+3. Hugging Face sayfasından `wiki_fts.db` dosyasını indirin ve yayımlanmış SHA-256
+   değeri varsa indirdiğiniz dosyayla karşılaştırın.
+
+4. `wiki_fts.db` dosyasını proje klasörüne koyun.
 
 Klasör yapısı şöyle olmalıdır:
 
@@ -52,17 +66,17 @@ wikipedia-fts5-arama-motoru/
 
 ## Çalıştırma
 
-Windows:
-
-```powershell
-python wiki_arama_motoru.py
+```bash
+wikipedia-fts5
 ```
 
-Linux veya macOS:
+Tek sorgu çalıştırmak için:
 
 ```bash
-python3 wiki_arama_motoru.py
+wikipedia-fts5 "Atatürk" --database wiki_fts.db --limit 10
 ```
+
+Eski `python wiki_arama_motoru.py` komutu geriye dönük uyumluluk için korunur.
 
 ## Kullanım Örneği
 
@@ -102,11 +116,22 @@ Hazır `wiki_fts.db` dosyasını kullanmak istemiyorsanız temizlenmiş Wikipedi
 wiki_temiz.txt
 ```
 
-Program ilk çalıştırmada bu dosyadan `wiki_fts.db` veritabanını üretir. Büyük dosyalarda bu işlem birkaç dakika sürebilir.
+Program aşağıdaki komutla bu dosyadan `wiki_fts.db` veritabanını üretir. Büyük
+dosyalarda bu işlem uzun sürebilir.
+
+```bash
+wikipedia-fts5 --build --source wiki_temiz.txt --database wiki_fts.db
+```
 
 ## Proje Dosyaları
 
-- `wiki_arama_motoru.py`: Ana arama motoru, veritabanı kurulumu ve terminal arayüzü
+- `wikipedia_fts5/engine.py`: Metin temizleme, indeksleme ve arama çekirdeği
+- `wikipedia_fts5/search.py`: Arama için kararlı kütüphane yüzeyi
+- `wikipedia_fts5/index.py`: İndeks oluşturma yüzeyi
+- `wikipedia_fts5/cli.py`: Komut satırı arayüzü
+- `wiki_arama_motoru.py`: Eski çalıştırma komutuyla uyumluluk sağlayan ince başlatıcı
+- `tests/`: Küçük ve deterministik FTS5 testleri
+- `docs/DATA_PROVENANCE.md`: Veri kaynağı, lisans ve checksum yayınlama kapısı
 - `.gitignore`: Büyük veri, veritabanı, arşiv ve önbellek dosyalarını Git dışında tutar
 
 ## Lisans Notu

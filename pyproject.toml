@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wikipedia-fts5-arama-motoru"
+version = "1.0.0"
+description = "Dependency-free local Turkish Wikipedia search powered by SQLite FTS5"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{name = "Berat Beşli"}]
+
+[project.scripts]
+wikipedia-fts5 = "wikipedia_fts5.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["wikipedia_fts5*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
