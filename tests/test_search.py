@@ -50,3 +50,32 @@ def test_prefix_search_and_invalid_database() -> None:
 def test_html_comments_with_bang_end_tag_are_removed() -> None:
     cleaned = wiki_metni_sadelestir("Önce <!-- gizli --!> sonra")
     assert cleaned == "Önce sonra"
+
+
+def test_search_does_not_transfer_entire_large_articles() -> None:
+    connection = database()
+    connection.execute(
+        "INSERT INTO makaleler VALUES (?, ?, ?)",
+        (4, "İstanbul Tarihi", "İstanbul tarihi ve kültürü çok zengindir. " * 3000),
+    )
+
+    class LimitedCursor:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def execute(self, *args):
+            self.inner.execute(*args)
+
+        def fetchall(self):
+            rows = self.inner.fetchall()
+            assert all(len(row[1]) <= 32000 for row in rows)
+            return rows
+
+    class LimitedConnection:
+        def cursor(self):
+            return LimitedCursor(connection.cursor())
+
+    try:
+        assert esnek_arama(LimitedConnection(), "İstanbul", limit=4)
+    finally:
+        connection.close()

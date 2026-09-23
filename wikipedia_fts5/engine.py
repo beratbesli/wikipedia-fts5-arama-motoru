@@ -3,16 +3,18 @@
 """SQLite FTS5 tabanlı, çevrimdışı Türkçe Wikipedia arama motoru."""
 
 import html
+import hashlib
 import os
 import re
 import sqlite3
+import tempfile
 import time
 
 
 PROJE_DIZINI = os.path.dirname(os.path.abspath(__file__))
 VURGU_AC = "\ue000"
 VURGU_KAPAT = "\ue001"
-SEMA_SURUMU = "2"
+SEMA_SURUMU = "3"
 TURKCE_HARF_DONUSUMU = str.maketrans({"I": "ı", "İ": "i"})
 
 # Büyük dökümler işlenirken her makale için yeniden derlenmemeleri gereken desenler.
@@ -687,7 +689,7 @@ def esnek_arama(conn, sorgu_metni, limit=5, on_ek_eslesmesi=True):
     sql = """
         SELECT
             baslik,
-            metin,
+            substr(metin, 1, 32000) AS metin_on_eki,
             bm25(makaleler, 0.0, 5.0, 1.0) AS fts_puani,
             snippet(makaleler, 2, '', '', ' … ', 64) AS ozet_ham
         FROM makaleler
@@ -845,6 +847,15 @@ def _makaleler_tablosunu_hazirla(conn):
     return True
 
 
+def _kaynak_parmak_izi(dosya_yolu):
+    """Kaynağın aynı boydaki içerik değişimlerini de yakalayan SHA-256 özeti."""
+    ozet = hashlib.sha256()
+    with open(dosya_yolu, "rb") as kaynak:
+        for parca in iter(lambda: kaynak.read(1024 * 1024), b""):
+            ozet.update(parca)
+    return ozet.hexdigest()
+
+
 def veritabani_kur(
     txt_dosyasi="wiki_temiz.txt",
     db_dosyasi="wiki_fts.db",
@@ -867,81 +878,62 @@ def veritabani_kur(
         print("Wikipedia metin dosyası bulunamadı. Lütfen 'wiki_temiz.txt' dosyasını proje klasörüne ekleyin.")
         return False
 
-    conn = None
     try:
-        if yeniden_olustur and os.path.exists(db_dosyasi):
-            os.remove(db_dosyasi)
-        conn = sqlite3.connect(db_dosyasi)
-        sema_yenilendi = _makaleler_tablosunu_hazirla(conn)
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS indeks_durumu(
-                anahtar TEXT PRIMARY KEY,
-                deger TEXT NOT NULL
-            )
-            """
-        )
-        conn.commit()
-
-        mevcut_kayit = conn.execute("SELECT COUNT(*) FROM makaleler").fetchone()[0]
-        durum = dict(conn.execute("SELECT anahtar, deger FROM indeks_durumu").fetchall())
         kaynak_boyutu = str(os.path.getsize(txt_dosyasi))
-        istenen_limit = "TUMU" if max_satir is None else str(max_satir)
-        tamamlandi = durum.get("tamamlandi") == "1"
-        kaynak_ayni = durum.get("kaynak_boyutu") == kaynak_boyutu
-        onceki_limit = durum.get("limit")
-        sema_guncel = durum.get("sema_surumu") == SEMA_SURUMU
+        kaynak_ozeti = _kaynak_parmak_izi(txt_dosyasi)
+    except OSError:
+        print("Wikipedia metin dosyası okunamadı.")
+        return False
 
-        yeterli_legacy_indeks = (
-            mevcut_kayit > 0
-            and not durum
-            and max_satir is not None
-            and mevcut_kayit >= max_satir
-        )
-        yeterli_tamamlanmis_indeks = (
-            mevcut_kayit > 0
-            and tamamlandi
-            and kaynak_ayni
-            and sema_guncel
-            and not sema_yenilendi
-            and (
-                onceki_limit == "TUMU"
-                or (max_satir is not None and mevcut_kayit >= max_satir)
-                or onceki_limit == istenen_limit
-            )
-        )
-        if not yeniden_olustur and (yeterli_legacy_indeks or yeterli_tamamlanmis_indeks):
-            if yeterli_legacy_indeks:
-                conn.executemany(
-                    "INSERT OR REPLACE INTO indeks_durumu(anahtar, deger) VALUES (?, ?)",
-                    (
-                        ("tamamlandi", "1"),
-                        ("kaynak_boyutu", kaynak_boyutu),
-                        ("limit", str(mevcut_kayit)),
-                        ("sema_surumu", SEMA_SURUMU),
-                    ),
+    istenen_limit = "TUMU" if max_satir is None else str(max_satir)
+    if not yeniden_olustur and os.path.isfile(db_dosyasi):
+        eski_conn = None
+        try:
+            eski_conn = sqlite3.connect(db_dosyasi)
+            sutunlar = [satir[1] for satir in eski_conn.execute("PRAGMA table_info(makaleler)")]
+            mevcut_kayit = eski_conn.execute("SELECT COUNT(*) FROM makaleler").fetchone()[0]
+            durum = dict(eski_conn.execute("SELECT anahtar, deger FROM indeks_durumu"))
+            onceki_limit = durum.get("limit")
+            if (
+                sutunlar == ["satir_id", "baslik", "metin"]
+                and mevcut_kayit > 0
+                and durum.get("tamamlandi") == "1"
+                and durum.get("kaynak_boyutu") == kaynak_boyutu
+                and durum.get("kaynak_sha256") == kaynak_ozeti
+                and durum.get("sema_surumu") == SEMA_SURUMU
+                and (
+                    onceki_limit == "TUMU"
+                    or (max_satir is not None and mevcut_kayit >= max_satir)
+                    or onceki_limit == istenen_limit
                 )
-                conn.commit()
-            print(f"Kütüphane hazır! ({mevcut_kayit:,} makale arama için hazır)")
-            return conn
+            ):
+                print(f"Kütüphane hazır! ({mevcut_kayit:,} makale arama için hazır)")
+                return eski_conn
+        except sqlite3.Error:
+            pass
+        if eski_conn is not None:
+            eski_conn.close()
 
-        if mevcut_kayit:
-            conn.execute("DELETE FROM makaleler")
-        conn.executemany(
-            "INSERT OR REPLACE INTO indeks_durumu(anahtar, deger) VALUES (?, ?)",
-            (
-                ("tamamlandi", "0"),
-                ("kaynak_boyutu", kaynak_boyutu),
-                ("limit", istenen_limit),
-                ("sema_surumu", SEMA_SURUMU),
-            ),
+    conn = None
+    gecici_yol = None
+    try:
+        dosya_tanitici, gecici_yol = tempfile.mkstemp(
+            prefix=".wiki-fts-", suffix=".db", dir=os.path.dirname(os.path.abspath(db_dosyasi))
+        )
+        os.close(dosya_tanitici)
+        conn = sqlite3.connect(gecici_yol)
+        _makaleler_tablosunu_hazirla(conn)
+        conn.execute(
+            "CREATE TABLE indeks_durumu(anahtar TEXT PRIMARY KEY, deger TEXT NOT NULL)"
         )
         conn.commit()
     except (OSError, sqlite3.Error):
         if conn is not None:
+            conn.close()
+        if gecici_yol is not None:
             try:
-                conn.close()
-            except sqlite3.Error:
+                os.remove(gecici_yol)
+            except OSError:
                 pass
         print("Wikipedia kütüphanesi açılamadı. Lütfen dosya izinlerini ve boş alanı kontrol edin.")
         return False
@@ -983,28 +975,44 @@ def veritabani_kur(
             atlanan_satir += atlanan
 
         conn.execute("INSERT INTO makaleler(makaleler) VALUES('optimize')")
+        if toplam_satir == 0 or _kaynak_parmak_izi(txt_dosyasi) != kaynak_ozeti:
+            raise ValueError("Kaynak değişti veya indeks boş kaldı")
         conn.executemany(
             "INSERT OR REPLACE INTO indeks_durumu(anahtar, deger) VALUES (?, ?)",
             (
                 ("tamamlandi", "1"),
-                ("kaynak_boyutu", str(os.path.getsize(txt_dosyasi))),
+                ("kaynak_boyutu", kaynak_boyutu),
+                ("kaynak_sha256", kaynak_ozeti),
                 ("limit", istenen_limit),
                 ("sema_surumu", SEMA_SURUMU),
             ),
         )
         conn.commit()
-    except (OSError, sqlite3.Error):
-        try:
-            conn.close()
-        except sqlite3.Error:
-            pass
+        conn.execute("INSERT INTO makaleler(makaleler) VALUES('integrity-check')")
+        if conn.execute("PRAGMA quick_check").fetchone() != ("ok",):
+            raise ValueError("İndeks doğrulanamadı")
+        if conn.execute("SELECT COUNT(*) FROM makaleler").fetchone()[0] != toplam_satir:
+            raise ValueError("İndeks kayıt sayısı doğrulanamadı")
+        conn.close()
+        conn = None
+        os.replace(gecici_yol, db_dosyasi)
+        gecici_yol = None
+    except (OSError, sqlite3.Error, ValueError):
         print("Kütüphane hazırlanırken bir dosya sorunu oluştu. Daha sonra yeniden deneyebilirsiniz.")
         return False
+    finally:
+        if conn is not None:
+            conn.close()
+        if gecici_yol is not None:
+            try:
+                os.remove(gecici_yol)
+            except OSError:
+                pass
 
     gecen_sure = time.time() - baslangic_zamani
     ek_bilgi = f" ({atlanan_satir:,} okunamayan kayıt atlandı)" if atlanan_satir else ""
     print(f"Kütüphane kurulumu tamamlandı! {toplam_satir:,} makale {gecen_sure:.2f} saniyede hazırlandı{ek_bilgi}.")
-    return conn
+    return sqlite3.connect(db_dosyasi)
 
 
 def _sonuc_sayfasini_goster(sorgu_metni, sonuclar, sayfa, sayfa_boyutu=10):
